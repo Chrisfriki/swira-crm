@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { Plus, X, CheckCircle2, Circle, Clock, Tag, ChevronLeft, ChevronRight, CalendarDays, LayoutDashboard, Trello, Activity, Calendar as CalendarIcon, Users, Edit3, Trash2, FileText, Upload, Receipt, Download, Loader2, AlertCircle, Euro } from 'lucide-react';
+import type { User } from '@supabase/supabase-js';
+import { Plus, X, CheckCircle2, Circle, Clock, Tag, ChevronLeft, ChevronRight, CalendarDays, LayoutDashboard, Trello, Activity, Calendar as CalendarIcon, Users, Edit3, Trash2, FileText, Upload, Receipt, Download, Loader2, AlertCircle, Euro, LogOut, ShieldCheck } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 
 // ---------------------------------------------------------
@@ -128,7 +129,9 @@ const generateInitialTasks = (clientsList) => {
   return initial;
 };
 
-export default function App() {
+export default function App({ currentUser }: { currentUser: User }) {
+  const isAdmin = currentUser.app_metadata?.role === 'admin';
+  const userName = currentUser.user_metadata?.display_name || currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'Usuario';
   const [clients, setClients] = useState(INITIAL_CLIENTS);
   const [tasks, setTasks] = useState(() => generateInitialTasks(INITIAL_CLIENTS));
   const [invoices, setInvoices] = useState([]);
@@ -200,19 +203,13 @@ export default function App() {
   useEffect(() => {
     if (!storageReady || !supabase) return;
     const syncData = async () => {
-      const [clientsResult, tasksResult] = await Promise.all([
-        clients.length
-          ? supabase.from('clients').upsert(clients.map(client => ({ ...client, updated_at: new Date().toISOString() })))
-          : Promise.resolve({ error: null }),
-        tasks.length
-          ? supabase.from('tasks').upsert(tasks.map(mapTaskToDb))
-          : Promise.resolve({ error: null }),
-      ]);
-      const error = clientsResult.error || tasksResult.error;
+      const { error } = tasks.length
+        ? await supabase.from('tasks').upsert(tasks.map(mapTaskToDb))
+        : { error: null };
       if (error) setSyncError(error.message);
     };
     void syncData();
-  }, [clients, storageReady, tasks]);
+  }, [storageReady, tasks]);
   
   // Calendario
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -366,6 +363,40 @@ export default function App() {
     setTasks(prev => prev.filter(t => t.id !== id));
     if (supabase) await supabase.from('tasks').delete().eq('id', id);
     setIsModalOpen(false);
+  };
+
+  const createClient = async (clientName) => {
+    if (!isAdmin || !clientName.trim()) return;
+    const newClient = {
+      id: 'c_' + Date.now(),
+      name: clientName.trim(),
+      type: 'external',
+    };
+    const newTasks = generateTasksForClient(newClient);
+
+    if (supabase) {
+      const { error: clientError } = await supabase.from('clients').insert({
+        ...newClient,
+        updated_at: new Date().toISOString(),
+      });
+      if (clientError) {
+        setSyncError(clientError.message);
+        return;
+      }
+      const { error: tasksError } = await supabase.from('tasks').insert(newTasks.map(mapTaskToDb));
+      if (tasksError) {
+        setSyncError(tasksError.message);
+        return;
+      }
+    }
+
+    setClients(prev => [...prev, newClient]);
+    setTasks(prev => [...prev, ...newTasks]);
+    setIsNewClientModalOpen(false);
+  };
+
+  const signOut = async () => {
+    if (supabase) await supabase.auth.signOut();
   };
 
   const uploadBillingDocument = async (invoiceId, file, kind) => {
@@ -628,7 +659,7 @@ export default function App() {
             { id: 'kanban', icon: Trello, label: 'Tablero procesos' },
             { id: 'calendar', icon: CalendarDays, label: 'Calendario' },
             { id: 'matrix', icon: Activity, label: 'Matriz Imp/Urg' },
-            { id: 'invoices', icon: FileText, label: 'Facturas' },
+            ...(isAdmin ? [{ id: 'invoices', icon: FileText, label: 'Facturas' }] : []),
           ].map(item => (
             <button
               key={item.id}
@@ -643,6 +674,17 @@ export default function App() {
               <span>{item.label}</span>
             </button>
           ))}
+        </div>
+
+        <div className="mx-4 mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black text-sm font-black text-white">{String(userName).charAt(0).toUpperCase()}</div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-black text-slate-800">{userName}</p>
+              <p className="flex items-center text-[11px] font-bold text-slate-500">{isAdmin && <ShieldCheck className="mr-1 h-3 w-3 text-[#1b5b3b]" />}{isAdmin ? 'Administrador' : 'Equipo'}</p>
+            </div>
+            <button onClick={() => void signOut()} className="rounded-lg p-2 text-slate-400 transition hover:bg-white hover:text-red-600" aria-label="Cerrar sesión" title="Cerrar sesión"><LogOut className="h-4 w-4" /></button>
+          </div>
         </div>
 
         {/* Create Task Button */}
@@ -711,8 +753,8 @@ export default function App() {
                   <h2 className="text-2xl font-bold text-slate-800 mb-1">Resumen del Mes</h2>
                   <p className="text-slate-500">Métricas actuales del equipo Swira.</p>
                 </div>
-                <div className="flex space-x-3">
-                  <button 
+                {isAdmin && <div className="flex space-x-3">
+                  <button
                     onClick={() => setIsNewClientModalOpen(true)}
                     className={`px-4 py-2 bg-white text-slate-700 border border-slate-200 text-sm font-bold rounded-lg shadow-sm hover:bg-slate-50 transition-colors flex items-center`}
                   >
@@ -726,7 +768,7 @@ export default function App() {
                     <Activity className="w-4 h-4 mr-2" />
                     Iniciar Nuevo Mes
                   </button>
-                </div>
+                </div>}
               </div>
 
               {[
@@ -1106,7 +1148,7 @@ export default function App() {
           )}
 
           {/* Facturación */}
-          {activeTab === 'invoices' && (
+          {activeTab === 'invoices' && isAdmin && (
             <div className="h-full overflow-y-auto pb-10">
               <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -1202,7 +1244,7 @@ export default function App() {
       </div>
 
       {/* Modal Nueva Factura */}
-      {isInvoiceModalOpen && (
+      {isInvoiceModalOpen && isAdmin && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
           <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className={`flex items-center justify-between bg-[${BRAND_COLORS.preto}] px-6 py-4`}>
@@ -1544,7 +1586,7 @@ export default function App() {
       )}
 
       {/* Modal Confirmación Reset Mensual */}
-      {isResetConfirmOpen && (
+      {isResetConfirmOpen && isAdmin && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col text-center p-8">
             <div className={`w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4`}>
@@ -1576,7 +1618,7 @@ export default function App() {
       )}
 
       {/* Modal Nuevo Cliente */}
-      {isNewClientModalOpen && (
+      {isNewClientModalOpen && isAdmin && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
             <div className={`px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-[${BRAND_COLORS.preto}]`}>
@@ -1595,22 +1637,7 @@ export default function App() {
                 e.preventDefault();
                 const formData = new FormData(e.currentTarget);
                 const clientName = String(formData.get('clientName') || '');
-                if (!clientName.trim()) return;
-
-                const newClient = { 
-                  id: 'c_' + Date.now(), 
-                  name: clientName, 
-                  type: 'external' 
-                };
-
-                // Añadimos el cliente a la lista
-                setClients(prev => [...prev, newClient]);
-                
-                // Generamos sus 11 tareas en el Backlog
-                const newTasks = generateTasksForClient(newClient);
-                setTasks(prev => [...prev, ...newTasks]);
-                
-                setIsNewClientModalOpen(false);
+                void createClient(clientName);
               }}
             >
               <div className="mb-6">
