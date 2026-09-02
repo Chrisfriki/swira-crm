@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { Plus, X, CheckCircle2, Circle, Clock, Tag, ChevronLeft, ChevronRight, CalendarDays, LayoutDashboard, Trello, Activity, Calendar as CalendarIcon, Users, Edit3, Trash2 } from 'lucide-react';
+import { Plus, X, CheckCircle2, Circle, Clock, Tag, ChevronLeft, ChevronRight, CalendarDays, LayoutDashboard, Trello, Activity, Calendar as CalendarIcon, Users, Edit3, Trash2, FileText, Upload, Receipt, Download, Loader2, AlertCircle, Euro } from 'lucide-react';
+import { isSupabaseConfigured, supabase } from './lib/supabase';
 
 // ---------------------------------------------------------
 // CONSTANTES & CONFIGURACIÓN BASE
@@ -61,6 +62,45 @@ const QUADRANTS = [
   { id: 'q4', label: 'Posponer (No Urg & No Imp)', u: 'baja', i: 'baja', color: 'border-slate-300 bg-slate-50/30' }
 ];
 
+const INVOICE_STATUSES = [
+  { id: 'pending_send', label: 'Pendiente de enviar', color: 'border-amber-300 bg-amber-50 text-amber-800' },
+  { id: 'sent', label: 'Enviada · pendiente de pago', color: 'border-blue-300 bg-blue-50 text-blue-800' },
+  { id: 'paid', label: 'Pagada', color: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
+];
+
+const mapTaskFromDb = (task) => ({
+  id: task.id,
+  title: task.title,
+  desc: task.description || '',
+  client: task.client_id,
+  assignees: task.assignees || [],
+  urgency: task.urgency,
+  importance: task.importance,
+  dueDate: task.due_date,
+  startTime: task.start_time?.slice(0, 5) || null,
+  status: task.status,
+  time: task.estimated_time,
+  quantity: task.quantity,
+  people: task.people,
+});
+
+const mapTaskToDb = (task) => ({
+  id: task.id,
+  title: task.title,
+  description: task.desc || '',
+  client_id: task.client,
+  assignees: task.assignees || [],
+  urgency: Number(task.urgency),
+  importance: Number(task.importance),
+  due_date: task.dueDate || null,
+  start_time: task.startTime || null,
+  status: task.status,
+  estimated_time: task.time || null,
+  quantity: task.quantity || null,
+  people: task.people ? Number(task.people) : null,
+  updated_at: new Date().toISOString(),
+});
+
 const generateTasksForClient = (client) => {
   return STANDARD_WORKFLOW.map(wf => ({
     id: 'task_' + Math.random().toString(36).substr(2, 9),
@@ -91,7 +131,11 @@ const generateInitialTasks = (clientsList) => {
 export default function App() {
   const [clients, setClients] = useState(INITIAL_CLIENTS);
   const [tasks, setTasks] = useState(() => generateInitialTasks(INITIAL_CLIENTS));
+  const [invoices, setInvoices] = useState([]);
   const [storageReady, setStorageReady] = useState(false);
+  const [syncError, setSyncError] = useState('');
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [isUploadingInvoice, setIsUploadingInvoice] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [filterAssignee, setFilterAssignee] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -102,24 +146,72 @@ export default function App() {
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false); // Modal de nuevo cliente
 
   useEffect(() => {
-    try {
-      const savedClients = window.localStorage.getItem('swira-crm-v1-clients');
-      const savedTasks = window.localStorage.getItem('swira-crm-v1-tasks');
-      // La carga se realiza una sola vez tras montar para evitar diferencias de hidratación.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (savedClients) setClients(JSON.parse(savedClients));
-      if (savedTasks) setTasks(JSON.parse(savedTasks));
-    } catch {
-      // Si los datos locales están dañados, mantenemos los valores iniciales.
-    } finally {
-      setStorageReady(true);
-    }
+    const loadData = async () => {
+      try {
+        const savedClients = JSON.parse(window.localStorage.getItem('swira-crm-v1-clients') || 'null');
+        const savedTasks = JSON.parse(window.localStorage.getItem('swira-crm-v1-tasks') || 'null');
+
+        if (!supabase) {
+          if (savedClients) setClients(savedClients);
+          if (savedTasks) setTasks(savedTasks);
+          return;
+        }
+
+        const [clientsResult, tasksResult, invoicesResult] = await Promise.all([
+          supabase.from('clients').select('*').order('name'),
+          supabase.from('tasks').select('*').order('created_at'),
+          supabase.from('invoices').select('*').order('billing_month', { ascending: false }),
+        ]);
+        const firstError = clientsResult.error || tasksResult.error || invoicesResult.error;
+        if (firstError) throw firstError;
+
+        if (!clientsResult.data?.length) {
+          const initialClients = savedClients || INITIAL_CLIENTS;
+          const initialTasks = savedTasks || generateInitialTasks(initialClients);
+          const { error: clientsError } = await supabase.from('clients').upsert(
+            initialClients.map(client => ({ ...client, updated_at: new Date().toISOString() }))
+          );
+          if (clientsError) throw clientsError;
+          const { error: tasksError } = await supabase.from('tasks').upsert(initialTasks.map(mapTaskToDb));
+          if (tasksError) throw tasksError;
+          setClients(initialClients);
+          setTasks(initialTasks);
+        } else {
+          setClients(clientsResult.data.map(client => ({ id: client.id, name: client.name, type: client.type })));
+          setTasks((tasksResult.data || []).map(mapTaskFromDb));
+        }
+        setInvoices(invoicesResult.data || []);
+      } catch (error) {
+        setSyncError(error instanceof Error ? error.message : 'No se pudo conectar con Supabase.');
+      } finally {
+        setStorageReady(true);
+      }
+    };
+
+    void loadData();
   }, []);
 
   useEffect(() => {
     if (!storageReady) return;
     window.localStorage.setItem('swira-crm-v1-clients', JSON.stringify(clients));
     window.localStorage.setItem('swira-crm-v1-tasks', JSON.stringify(tasks));
+  }, [clients, storageReady, tasks]);
+
+  useEffect(() => {
+    if (!storageReady || !supabase) return;
+    const syncData = async () => {
+      const [clientsResult, tasksResult] = await Promise.all([
+        clients.length
+          ? supabase.from('clients').upsert(clients.map(client => ({ ...client, updated_at: new Date().toISOString() })))
+          : Promise.resolve({ error: null }),
+        tasks.length
+          ? supabase.from('tasks').upsert(tasks.map(mapTaskToDb))
+          : Promise.resolve({ error: null }),
+      ]);
+      const error = clientsResult.error || tasksResult.error;
+      if (error) setSyncError(error.message);
+    };
+    void syncData();
   }, [clients, storageReady, tasks]);
   
   // Calendario
@@ -270,9 +362,116 @@ export default function App() {
     setIsModalOpen(false);
   };
 
-  const deleteTask = (id) => {
+  const deleteTask = async (id) => {
     setTasks(prev => prev.filter(t => t.id !== id));
+    if (supabase) await supabase.from('tasks').delete().eq('id', id);
     setIsModalOpen(false);
+  };
+
+  const uploadBillingDocument = async (invoiceId, file, kind) => {
+    if (!supabase || !file) return null;
+    if (file.size > 10 * 1024 * 1024) throw new Error('El archivo supera el límite de 10 MB.');
+    const safeName = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]/g, '-');
+    const path = `${invoiceId}/${kind}-${Date.now()}-${safeName}`;
+    const { error } = await supabase.storage.from('billing-documents').upload(path, file, {
+      contentType: file.type || undefined,
+      upsert: false,
+    });
+    if (error) throw error;
+    return { path, name: file.name };
+  };
+
+  const saveInvoice = async (form) => {
+    if (!supabase) return;
+    setIsUploadingInvoice(true);
+    setSyncError('');
+    try {
+      const id = crypto.randomUUID();
+      const invoiceFile = form.get('invoiceFile');
+      const receiptFile = form.get('receiptFile');
+      const invoiceDocument = invoiceFile instanceof File && invoiceFile.size
+        ? await uploadBillingDocument(id, invoiceFile, 'invoice')
+        : null;
+      const receiptDocument = receiptFile instanceof File && receiptFile.size
+        ? await uploadBillingDocument(id, receiptFile, 'receipt')
+        : null;
+      const status = String(form.get('status') || 'pending_send');
+      const now = new Date().toISOString();
+      const record = {
+        id,
+        client_id: String(form.get('clientId')),
+        billing_month: `${String(form.get('billingMonth'))}-01`,
+        invoice_number: String(form.get('invoiceNumber') || '') || null,
+        amount: Number(form.get('amount') || 0),
+        due_date: String(form.get('dueDate') || '') || null,
+        status,
+        invoice_path: invoiceDocument?.path || null,
+        invoice_name: invoiceDocument?.name || null,
+        receipt_path: receiptDocument?.path || null,
+        receipt_name: receiptDocument?.name || null,
+        sent_at: status === 'sent' || status === 'paid' ? now : null,
+        paid_at: status === 'paid' ? now : null,
+        notes: String(form.get('notes') || ''),
+        updated_at: now,
+      };
+      const { data, error } = await supabase.from('invoices').insert(record).select().single();
+      if (error) throw error;
+      setInvoices(prev => [data, ...prev]);
+      setIsInvoiceModalOpen(false);
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'No se pudo guardar la factura.');
+    } finally {
+      setIsUploadingInvoice(false);
+    }
+  };
+
+  const updateInvoiceStatus = async (invoice, status) => {
+    if (!supabase) return;
+    const now = new Date().toISOString();
+    const changes = {
+      status,
+      sent_at: status === 'pending_send' ? null : (invoice.sent_at || now),
+      paid_at: status === 'paid' ? (invoice.paid_at || now) : null,
+      updated_at: now,
+    };
+    const { data, error } = await supabase.from('invoices').update(changes).eq('id', invoice.id).select().single();
+    if (error) return setSyncError(error.message);
+    setInvoices(prev => prev.map(item => item.id === invoice.id ? data : item));
+  };
+
+  const attachReceipt = async (invoice, file) => {
+    if (!supabase || !file) return;
+    setIsUploadingInvoice(true);
+    try {
+      const receipt = await uploadBillingDocument(invoice.id, file, 'receipt');
+      const { data, error } = await supabase.from('invoices').update({
+        receipt_path: receipt.path,
+        receipt_name: receipt.name,
+        updated_at: new Date().toISOString(),
+      }).eq('id', invoice.id).select().single();
+      if (error) throw error;
+      setInvoices(prev => prev.map(item => item.id === invoice.id ? data : item));
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'No se pudo subir el justificante.');
+    } finally {
+      setIsUploadingInvoice(false);
+    }
+  };
+
+  const openBillingDocument = async (path) => {
+    if (!supabase || !path) return;
+    const { data, error } = await supabase.storage.from('billing-documents').createSignedUrl(path, 60);
+    if (error) return setSyncError(error.message);
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const deleteInvoice = async (invoice) => {
+    if (!supabase || !window.confirm('¿Eliminar esta factura y sus documentos?')) return;
+    const paths = [invoice.invoice_path, invoice.receipt_path].filter(Boolean);
+    if (paths.length) await supabase.storage.from('billing-documents').remove(paths);
+    const { error } = await supabase.from('invoices').delete().eq('id', invoice.id);
+    if (error) return setSyncError(error.message);
+    setInvoices(prev => prev.filter(item => item.id !== invoice.id));
   };
 
   // ---------------------------------------------------------
@@ -429,6 +628,7 @@ export default function App() {
             { id: 'kanban', icon: Trello, label: 'Tablero procesos' },
             { id: 'calendar', icon: CalendarDays, label: 'Calendario' },
             { id: 'matrix', icon: Activity, label: 'Matriz Imp/Urg' },
+            { id: 'invoices', icon: FileText, label: 'Facturas' },
           ].map(item => (
             <button
               key={item.id}
@@ -466,6 +666,7 @@ export default function App() {
             {activeTab === 'kanban' && 'Tablero de Procesos'}
             {activeTab === 'calendar' && 'Calendario de Equipo'}
             {activeTab === 'matrix' && 'Matriz de Eisenhower'}
+            {activeTab === 'invoices' && 'Facturación mensual'}
           </h1>
           
           {/* Team Filter */}
@@ -491,6 +692,13 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        {syncError && (
+          <div className="mx-6 mt-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <span className="flex items-center"><AlertCircle className="mr-2 h-4 w-4" />{syncError}</span>
+            <button onClick={() => setSyncError('')} className="rounded p-1 hover:bg-red-100" aria-label="Cerrar aviso"><X className="h-4 w-4" /></button>
+          </div>
+        )}
 
         {/* Main Workspace */}
         <main className={`flex-1 p-6 overflow-hidden ${activeTab === 'kanban' || activeTab === 'matrix' ? 'overflow-x-auto' : ''}`}>
@@ -897,8 +1105,173 @@ export default function App() {
             </div>
           )}
 
+          {/* Facturación */}
+          {activeTab === 'invoices' && (
+            <div className="h-full overflow-y-auto pb-10">
+              <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-slate-800">Facturas de Holded</h2>
+                  <p className="mt-1 text-sm text-slate-500">Adjunta la factura mensual, controla el cobro y guarda su justificante.</p>
+                </div>
+                <button onClick={() => setIsInvoiceModalOpen(true)} className={`flex items-center justify-center rounded-xl bg-[${BRAND_COLORS.verdeMedio}] px-5 py-3 font-bold text-black shadow-sm transition hover:bg-[${BRAND_COLORS.verdeEscuro}] hover:text-white`}>
+                  <Plus className="mr-2 h-5 w-5" /> Nueva factura
+                </button>
+              </div>
+
+              <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {INVOICE_STATUSES.map(status => {
+                  const items = invoices.filter(invoice => invoice.status === status.id);
+                  const total = items.reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0);
+                  return (
+                    <div key={status.id} className={`rounded-2xl border p-5 ${status.color}`}>
+                      <p className="text-xs font-black uppercase tracking-wider">{status.label}</p>
+                      <div className="mt-2 flex items-end justify-between">
+                        <span className="text-3xl font-black">{items.length}</span>
+                        <span className="flex items-center text-sm font-bold"><Euro className="mr-1 h-4 w-4" />{total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {!isSupabaseConfigured && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-800">Supabase no está configurado en este entorno.</div>
+              )}
+
+              <div className="grid min-w-[980px] grid-cols-3 gap-5">
+                {INVOICE_STATUSES.map((status, statusIndex) => (
+                  <section key={status.id} className="rounded-2xl border border-slate-200 bg-slate-100/70 p-4">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h3 className="font-black text-slate-800">{status.label}</h3>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-xs font-black text-slate-500">{invoices.filter(invoice => invoice.status === status.id).length}</span>
+                    </div>
+                    <div className="space-y-3">
+                      {invoices.filter(invoice => invoice.status === status.id).map(invoice => {
+                        const client = clients.find(item => item.id === invoice.client_id);
+                        const isOverdue = invoice.status !== 'paid' && invoice.due_date && invoice.due_date < todayStr;
+                        return (
+                          <article key={invoice.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate font-black text-slate-800">{client?.name || 'Cliente'}</p>
+                                <p className="mt-0.5 text-xs font-semibold capitalize text-slate-500">{new Date(`${invoice.billing_month}T00:00:00`).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</p>
+                              </div>
+                              <button onClick={() => void deleteInvoice(invoice)} className="rounded-lg p-1.5 text-slate-300 transition hover:bg-red-50 hover:text-red-500" aria-label="Eliminar factura"><Trash2 className="h-4 w-4" /></button>
+                            </div>
+                            <div className="my-4 flex items-end justify-between border-y border-slate-100 py-3">
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-400">Factura</p>
+                                <p className="text-sm font-bold text-slate-600">{invoice.invoice_number || 'Sin número'}</p>
+                              </div>
+                              <p className="text-xl font-black text-slate-900">{Number(invoice.amount || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p>
+                            </div>
+                            {invoice.due_date && <p className={`mb-3 text-xs font-bold ${isOverdue ? 'text-red-600' : 'text-slate-500'}`}>{isOverdue ? 'Vencida' : 'Vence'}: {new Date(`${invoice.due_date}T00:00:00`).toLocaleDateString('es-ES')}</p>}
+                            <div className="space-y-2">
+                              {invoice.invoice_path ? (
+                                <button onClick={() => void openBillingDocument(invoice.invoice_path)} className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                                  <span className="flex min-w-0 items-center"><FileText className="mr-2 h-4 w-4 shrink-0 text-blue-500" /><span className="truncate">{invoice.invoice_name}</span></span><Download className="ml-2 h-4 w-4 shrink-0" />
+                                </button>
+                              ) : <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">Factura aún no adjuntada</p>}
+                              {invoice.receipt_path ? (
+                                <button onClick={() => void openBillingDocument(invoice.receipt_path)} className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+                                  <span className="flex min-w-0 items-center"><Receipt className="mr-2 h-4 w-4 shrink-0" /><span className="truncate">{invoice.receipt_name}</span></span><Download className="ml-2 h-4 w-4 shrink-0" />
+                                </button>
+                              ) : (
+                                <label className="flex w-full cursor-pointer items-center justify-center rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50">
+                                  <Upload className="mr-2 h-4 w-4" /> Adjuntar justificante
+                                  <input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" className="hidden" onChange={event => { const file = event.target.files?.[0]; if (file) void attachReceipt(invoice, file); }} />
+                                </label>
+                              )}
+                            </div>
+                            <div className="mt-4 flex gap-2">
+                              {statusIndex > 0 && <button onClick={() => void updateInvoiceStatus(invoice, INVOICE_STATUSES[statusIndex - 1].id)} className="flex-1 rounded-lg border border-slate-200 px-2 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50">Anterior</button>}
+                              {statusIndex < INVOICE_STATUSES.length - 1 && <button onClick={() => void updateInvoiceStatus(invoice, INVOICE_STATUSES[statusIndex + 1].id)} className={`flex-1 rounded-lg bg-[${BRAND_COLORS.preto}] px-2 py-2 text-xs font-bold text-white hover:bg-[${BRAND_COLORS.verdeEscuro}]`}>{statusIndex === 0 ? 'Marcar enviada' : 'Marcar pagada'}</button>}
+                            </div>
+                          </article>
+                        );
+                      })}
+                      {!invoices.some(invoice => invoice.status === status.id) && <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 p-6 text-center text-sm font-semibold text-slate-400">Sin facturas</div>}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </div>
+          )}
+
         </main>
       </div>
+
+      {/* Modal Nueva Factura */}
+      {isInvoiceModalOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className={`flex items-center justify-between bg-[${BRAND_COLORS.preto}] px-6 py-4`}>
+              <div>
+                <h3 className="text-xl font-black text-white">Registrar factura mensual</h3>
+                <p className="text-xs text-slate-400">Sube el documento exportado desde Holded.</p>
+              </div>
+              <button onClick={() => setIsInvoiceModalOpen(false)} className="rounded-lg p-1 text-white/70 hover:bg-white/10 hover:text-white"><X className="h-6 w-6" /></button>
+            </div>
+            <form className="space-y-5 overflow-y-auto p-6" onSubmit={event => { event.preventDefault(); void saveInvoice(new FormData(event.currentTarget)); }}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-bold text-slate-700">Cliente</label>
+                  <select name="clientId" required className={`w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}]`}>
+                    <option value="">Selecciona un cliente</option>
+                    {clients.map(client => <option key={client.id} value={client.id}>{client.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-bold text-slate-700">Mes facturado</label>
+                  <input type="month" name="billingMonth" required defaultValue={new Date().toISOString().slice(0, 7)} className={`w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}]`} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-bold text-slate-700">Número de factura</label>
+                  <input name="invoiceNumber" placeholder="Ej. F-2026-0092" className={`w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}]`} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-bold text-slate-700">Importe total (€)</label>
+                  <input type="number" name="amount" min="0" step="0.01" defaultValue="0" required className={`w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}]`} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-bold text-slate-700">Fecha de vencimiento</label>
+                  <input type="date" name="dueDate" className={`w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}]`} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-bold text-slate-700">Estado inicial</label>
+                  <select name="status" defaultValue="pending_send" className={`w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 font-semibold outline-none focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}]`}>
+                    {INVOICE_STATUSES.map(status => <option key={status.id} value={status.id}>{status.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label className="cursor-pointer rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 p-5 text-center transition hover:border-blue-400">
+                  <FileText className="mx-auto mb-2 h-7 w-7 text-blue-500" />
+                  <span className="block text-sm font-black text-slate-700">Adjuntar factura</span>
+                  <span className="mt-1 block text-xs text-slate-500">PDF, PNG, JPG o WebP · máx. 10 MB</span>
+                  <input type="file" name="invoiceFile" accept="application/pdf,image/png,image/jpeg,image/webp" className="mt-3 block w-full text-xs text-slate-500" />
+                </label>
+                <label className="cursor-pointer rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/50 p-5 text-center transition hover:border-emerald-400">
+                  <Receipt className="mx-auto mb-2 h-7 w-7 text-emerald-500" />
+                  <span className="block text-sm font-black text-slate-700">Justificante opcional</span>
+                  <span className="mt-1 block text-xs text-slate-500">También podrás añadirlo más tarde</span>
+                  <input type="file" name="receiptFile" accept="application/pdf,image/png,image/jpeg,image/webp" className="mt-3 block w-full text-xs text-slate-500" />
+                </label>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-bold text-slate-700">Notas</label>
+                <textarea name="notes" rows={3} placeholder="Observaciones, forma de pago, contacto…" className={`w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}]`} />
+              </div>
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                <button type="button" onClick={() => setIsInvoiceModalOpen(false)} className="rounded-lg px-5 py-2.5 font-bold text-slate-600 hover:bg-slate-100">Cancelar</button>
+                <button type="submit" disabled={isUploadingInvoice} className={`flex min-w-40 items-center justify-center rounded-lg bg-[${BRAND_COLORS.verdeMedio}] px-5 py-2.5 font-black text-black disabled:opacity-50`}>
+                  {isUploadingInvoice ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Subiendo…</> : <><Upload className="mr-2 h-4 w-4" />Guardar factura</>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal Nueva/Editar Tarea */}
       {isModalOpen && (
