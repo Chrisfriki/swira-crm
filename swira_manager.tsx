@@ -413,7 +413,7 @@ export default function App() {
         {/* LOGO AREA */}
         <div className={`h-16 flex items-center px-6 bg-[${BRAND_COLORS.preto}]`}>
           <Image
-            src="/branding/swira-logo.png"
+            src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/branding/swira-logo.png`}
             alt="Swira"
             width={160}
             height={60}
