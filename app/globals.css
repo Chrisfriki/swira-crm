@@ -1,0 +1,8 @@
+@import "tailwindcss";
+@source inline("bg-[#000000] bg-[#26d966] bg-[#1b5b3b] bg-[#efebe6] bg-[#26d966]/5 bg-[#26d966]/10 bg-[#26d966]/20 text-[#000000] text-[#26d966] text-[#1b5b3b] border-[#26d966] border-[#26d966]/20 border-[#26d966]/30 border-[#26d966]/40 border-[#26d966]/50 ring-[#26d966] accent-[#26d966] hover:bg-[#1b5b3b] hover:border-[#26d966] focus:ring-[#26d966]");
+
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { width: 100%; min-height: 100%; margin: 0; }
+body { background: #efebe6; }
+button, input, select, textarea { font: inherit; }
