@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { Plus, X, CheckCircle2, Circle, Clock, Tag, ChevronLeft, ChevronRight, CalendarDays, LayoutDashboard, Trello, Activity, Calendar as CalendarIcon, Users, Edit3, Trash2 } from 'lucide-react';
 
 // ---------------------------------------------------------
@@ -411,10 +412,14 @@ export default function App() {
       <div className={`w-64 bg-white border-r border-slate-200 flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10`}>
         {/* LOGO AREA */}
         <div className={`h-16 flex items-center px-6 bg-[${BRAND_COLORS.preto}]`}>
-           <div className="flex items-center" aria-label="Swira">
-             <span className={`text-[${BRAND_COLORS.verdeMedio}] font-bold text-2xl mr-1`}>s&apos;</span>
-             <span className="text-white font-bold text-xl tracking-tight">wira</span>
-           </div>
+          <Image
+            src="/branding/swira-logo.png"
+            alt="Swira"
+            width={160}
+            height={60}
+            className="h-9 w-auto object-contain"
+            preload
+          />
         </div>
         
         {/* Navigations */}
