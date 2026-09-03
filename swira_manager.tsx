@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import type { User } from '@supabase/supabase-js';
-import { Plus, X, CheckCircle2, Circle, Clock, Tag, ChevronLeft, ChevronRight, CalendarDays, LayoutDashboard, Trello, Activity, Calendar as CalendarIcon, Users, Edit3, Trash2, FileText, Upload, Receipt, Download, Loader2, AlertCircle, Euro, LogOut, ShieldCheck, Building2, ArrowLeft, Search, FileDown, BriefcaseBusiness } from 'lucide-react';
+import { Plus, X, CheckCircle2, Circle, Clock, Tag, ChevronLeft, ChevronRight, CalendarDays, LayoutDashboard, Trello, Activity, Calendar as CalendarIcon, Users, Edit3, Trash2, FileText, Upload, Receipt, Download, Loader2, AlertCircle, Euro, LogOut, ShieldCheck, Building2, ArrowLeft, Search, FileDown, BriefcaseBusiness, Camera, Link2, ExternalLink } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 
 // ---------------------------------------------------------
@@ -26,14 +26,25 @@ const TEAM = [
 ];
 
 const INITIAL_CLIENTS = [
-  { id: 'c1', name: 'Alcacenter', type: 'external', createdAt: null, updatedAt: null },
-  { id: 'c2', name: 'inku_sushi', type: 'external', createdAt: null, updatedAt: null },
-  { id: 'c3', name: 'Merca China', type: 'external', createdAt: null, updatedAt: null },
-  { id: 'c4', name: 'Shushi Tok', type: 'external', createdAt: null, updatedAt: null },
-  { id: 'c5', name: 'SpaceZoneJump', type: 'external', createdAt: null, updatedAt: null },
-  { id: 'c6', name: 'swiraes', type: 'external', createdAt: null, updatedAt: null },
-  { id: 'c7', name: 'Welding Systems', type: 'external', createdAt: null, updatedAt: null }
+  { id: 'c1', name: 'Alcacenter', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [] },
+  { id: 'c2', name: 'inku_sushi', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [] },
+  { id: 'c3', name: 'Merca China', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [] },
+  { id: 'c4', name: 'Shushi Tok', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [] },
+  { id: 'c5', name: 'SpaceZoneJump', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [] },
+  { id: 'c6', name: 'swiraes', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [] },
+  { id: 'c7', name: 'Welding Systems', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [] }
 ];
+
+const mapClientFromDb = (client) => ({
+  id: client.id,
+  name: client.name,
+  type: client.type,
+  createdAt: client.created_at,
+  updatedAt: client.updated_at,
+  startMonth: client.start_month,
+  avatarPath: client.avatar_path,
+  importantLinks: Array.isArray(client.important_links) ? client.important_links : [],
+});
 
 const STANDARD_WORKFLOW = [
   { title: "🎬 Grabación de Reels", desc: "Grabar 8 reels", time: "2h", quantity: "8 Reels", people: 2, urgency: 4, importance: 4 },
@@ -151,6 +162,10 @@ export default function App({ currentUser }: { currentUser: User }) {
   const [selectedClientProfile, setSelectedClientProfile] = useState(null);
   const [clientSearch, setClientSearch] = useState('');
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false); // Modal de nuevo cliente
+  const [isClientProfileModalOpen, setIsClientProfileModalOpen] = useState(false);
+  const [isSavingClientProfile, setIsSavingClientProfile] = useState(false);
+  const [clientAvatarUrls, setClientAvatarUrls] = useState({});
+  const [clientProfileDraft, setClientProfileDraft] = useState({ startMonth: '', importantLinks: [{ label: 'Carpeta de Drive', url: '' }] });
 
   useEffect(() => {
     const loadData = async () => {
@@ -176,7 +191,7 @@ export default function App({ currentUser }: { currentUser: User }) {
           setClients(savedClients || INITIAL_CLIENTS);
           setTasks(savedTasks || generateInitialTasks(savedClients || INITIAL_CLIENTS));
         } else {
-          setClients(clientsResult.data.map(client => ({ id: client.id, name: client.name, type: client.type, createdAt: client.created_at, updatedAt: client.updated_at })));
+          setClients(clientsResult.data.map(mapClientFromDb));
           setTasks((tasksResult.data || []).map(mapTaskFromDb));
         }
         setInvoices(invoicesResult.data || []);
@@ -196,6 +211,24 @@ export default function App({ currentUser }: { currentUser: User }) {
     window.localStorage.setItem('swira-crm-v1-clients', JSON.stringify(clients));
     window.localStorage.setItem('swira-crm-v1-tasks', JSON.stringify(tasks));
   }, [clients, storageReady, tasks]);
+
+  useEffect(() => {
+    if (!supabase || !storageReady) return;
+    const clientsWithAvatar = clients.filter(client => client.avatarPath);
+    if (!clientsWithAvatar.length) return;
+    let isCancelled = false;
+    const loadAvatarUrls = async () => {
+      const { data, error } = await supabase.storage.from('client-assets').createSignedUrls(clientsWithAvatar.map(client => client.avatarPath), 3600);
+      if (error || isCancelled) return;
+      setClientAvatarUrls(Object.fromEntries(clientsWithAvatar.map((client, index) => [client.id, data?.[index]?.signedUrl || ''])));
+    };
+    void loadAvatarUrls();
+    const refreshTimer = window.setInterval(() => void loadAvatarUrls(), 50 * 60 * 1000);
+    return () => {
+      isCancelled = true;
+      window.clearInterval(refreshTimer);
+    };
+  }, [clients, storageReady]);
 
   // Calendario
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -379,6 +412,9 @@ export default function App({ currentUser }: { currentUser: User }) {
       type: 'external',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      startMonth: new Date().toISOString().slice(0, 7) + '-01',
+      avatarPath: null,
+      importantLinks: [],
     };
     const newTasks = generateTasksForClient(newClient);
 
@@ -387,6 +423,8 @@ export default function App({ currentUser }: { currentUser: User }) {
         id: newClient.id,
         name: newClient.name,
         type: newClient.type,
+        start_month: newClient.startMonth,
+        important_links: newClient.importantLinks,
         updated_at: newClient.updatedAt,
       });
       if (clientError) {
@@ -403,6 +441,74 @@ export default function App({ currentUser }: { currentUser: User }) {
     setClients(prev => [...prev, newClient]);
     setTasks(prev => [...prev, ...newTasks]);
     setIsNewClientModalOpen(false);
+  };
+
+  const openClientProfileEditor = (client) => {
+    setClientProfileDraft({
+      startMonth: (client.startMonth || '').slice(0, 7),
+      importantLinks: client.importantLinks?.length
+        ? client.importantLinks.map(link => ({ label: link.label || '', url: link.url || '' }))
+        : [{ label: 'Carpeta de Drive', url: '' }],
+    });
+    setIsClientProfileModalOpen(true);
+  };
+
+  const normalizeExternalUrl = (value) => {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  };
+
+  const saveClientProfile = async (form) => {
+    if (!supabase || !selectedClientProfile || !isAdmin) return;
+    setIsSavingClientProfile(true);
+    setSyncError('');
+    let uploadedAvatarPath = null;
+    try {
+      const avatarFile = form.get('avatar');
+      if (avatarFile instanceof File && avatarFile.size) {
+        if (avatarFile.size > 5 * 1024 * 1024) throw new Error('La foto supera el límite de 5 MB.');
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(avatarFile.type)) throw new Error('La foto debe ser JPG, PNG o WebP.');
+        const safeName = avatarFile.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]/g, '-');
+        uploadedAvatarPath = `${selectedClientProfile.id}/profile-${Date.now()}-${safeName}`;
+        const { error: uploadError } = await supabase.storage.from('client-assets').upload(uploadedAvatarPath, avatarFile, {
+          contentType: avatarFile.type,
+          upsert: false,
+        });
+        if (uploadError) throw uploadError;
+      }
+
+      const importantLinks = clientProfileDraft.importantLinks
+        .map(link => ({ label: link.label.trim(), url: normalizeExternalUrl(link.url) }))
+        .filter(link => link.label && link.url);
+      importantLinks.forEach(link => { new URL(link.url); });
+      const startMonth = clientProfileDraft.startMonth ? `${clientProfileDraft.startMonth}-01` : null;
+      const avatarPath = uploadedAvatarPath || selectedClientProfile.avatarPath || null;
+      const updatedAt = new Date().toISOString();
+      const { data, error } = await supabase.from('clients').update({
+        start_month: startMonth,
+        avatar_path: avatarPath,
+        important_links: importantLinks,
+        updated_at: updatedAt,
+      }).eq('id', selectedClientProfile.id).select().single();
+      if (error) throw error;
+
+      const updatedClient = mapClientFromDb(data);
+      setClients(previous => previous.map(client => client.id === updatedClient.id ? updatedClient : client));
+      setSelectedClientProfile(updatedClient);
+      setIsClientProfileModalOpen(false);
+
+      if (uploadedAvatarPath) {
+        const { data: signedAvatar } = await supabase.storage.from('client-assets').createSignedUrl(uploadedAvatarPath, 3600);
+        if (signedAvatar?.signedUrl) setClientAvatarUrls(previous => ({ ...previous, [updatedClient.id]: signedAvatar.signedUrl }));
+        if (selectedClientProfile.avatarPath) await supabase.storage.from('client-assets').remove([selectedClientProfile.avatarPath]);
+      }
+    } catch (error) {
+      if (uploadedAvatarPath) await supabase.storage.from('client-assets').remove([uploadedAvatarPath]);
+      setSyncError(error instanceof Error ? error.message : 'No se pudo guardar la ficha del cliente.');
+    } finally {
+      setIsSavingClientProfile(false);
+    }
   };
 
   const signOut = async () => {
@@ -1210,10 +1316,16 @@ export default function App({ currentUser }: { currentUser: User }) {
                     <button onClick={() => setSelectedClientProfile(null)} className="flex items-center text-sm font-bold text-slate-500 hover:text-slate-900"><ArrowLeft className="mr-2 h-4 w-4" />Volver a clientes</button>
                     <section className="rounded-2xl bg-black p-7 text-white shadow-sm">
                       <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-                        <div>
-                          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#26d966]">Ficha de cliente</p>
-                          <h2 className="mt-2 text-3xl font-black">{selectedClientProfile.name}</h2>
-                          <p className="mt-2 text-sm text-white/60">Cliente desde {formatMonth(selectedClientProfile.createdAt)}</p>
+                        <div className="flex items-center gap-5">
+                          <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/15 bg-white/10 text-3xl font-black">
+                            {clientAvatarUrls[selectedClientProfile.id] ? <Image loader={({ src }) => src} unoptimized src={clientAvatarUrls[selectedClientProfile.id]} alt={`Foto de ${selectedClientProfile.name}`} fill sizes="80px" className="object-cover" /> : selectedClientProfile.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#26d966]">Ficha de cliente</p>
+                            <h2 className="mt-2 text-3xl font-black">{selectedClientProfile.name}</h2>
+                            <p className="mt-2 text-sm text-white/60">Cliente desde {formatMonth(selectedClientProfile.startMonth || selectedClientProfile.createdAt)}</p>
+                            <button onClick={() => openClientProfileEditor(selectedClientProfile)} className="mt-3 inline-flex items-center rounded-lg border border-white/20 px-3 py-2 text-xs font-black transition hover:bg-white hover:text-black"><Edit3 className="mr-2 h-4 w-4" />Editar ficha</button>
+                          </div>
                         </div>
                         <div className="flex gap-3">
                           <div className="rounded-xl bg-white/10 px-4 py-3"><p className="text-xs text-white/50">Servicios</p><p className="text-xl font-black">{services.length}</p></div>
@@ -1224,6 +1336,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                     </section>
 
                     <div className="grid gap-6 xl:grid-cols-[1fr_1.35fr]">
+                      <div className="space-y-6">
                       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                         <div className="mb-5 flex items-center gap-3"><BriefcaseBusiness className="h-5 w-5 text-[#1b5b3b]" /><div><h3 className="font-black text-slate-800">Servicios incluidos</h3><p className="text-xs text-slate-500">Extraídos de las tareas configuradas para el cliente.</p></div></div>
                         <div className="space-y-3">
@@ -1240,6 +1353,20 @@ export default function App({ currentUser }: { currentUser: User }) {
                           {!services.length && <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">Sin servicios configurados.</p>}
                         </div>
                       </section>
+
+                      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                        <div className="mb-5 flex items-center gap-3"><Link2 className="h-5 w-5 text-[#1b5b3b]" /><div><h3 className="font-black text-slate-800">Enlaces importantes</h3><p className="text-xs text-slate-500">Drive, web y redes sociales del cliente.</p></div></div>
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                          {selectedClientProfile.importantLinks?.map((link, index) => (
+                            <a key={`${link.url}-${index}`} href={link.url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4 transition hover:border-[#26d966] hover:bg-emerald-50">
+                              <span className="min-w-0"><span className="block font-bold text-slate-800">{link.label}</span><span className="mt-1 block truncate text-xs text-slate-500">{link.url.replace(/^https?:\/\//, '')}</span></span>
+                              <ExternalLink className="ml-3 h-4 w-4 shrink-0 text-slate-400" />
+                            </a>
+                          ))}
+                          {!selectedClientProfile.importantLinks?.length && <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">Todavía no hay enlaces guardados.</p>}
+                        </div>
+                      </section>
+                      </div>
 
                       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                         <div className="mb-5 flex items-center justify-between"><div><h3 className="font-black text-slate-800">Historial de facturación</h3><p className="text-xs text-slate-500">Control permanente de los documentos generados en Holded.</p></div><button onClick={() => { setInvoiceClientId(selectedClientProfile.id); setIsInvoiceModalOpen(true); }} className="rounded-lg bg-[#26d966] px-3 py-2 text-xs font-black text-black"><Plus className="mr-1 inline h-4 w-4" />Añadir mes</button></div>
@@ -1280,8 +1407,8 @@ export default function App({ currentUser }: { currentUser: User }) {
                       const status = currentInvoice ? INVOICE_STATUSES.find(item => item.id === currentInvoice.status) : null;
                       return (
                         <button key={client.id} onClick={() => setSelectedClientProfile(client)} className="grid w-full grid-cols-1 gap-3 border-b border-slate-100 px-6 py-5 text-left transition last:border-0 hover:bg-slate-50 md:grid-cols-[1.5fr_1fr_0.7fr_1.1fr_36px] md:items-center md:gap-4">
-                          <span className="flex items-center gap-3 font-black text-slate-800"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-black text-white">{client.name.charAt(0).toUpperCase()}</span>{client.name}</span>
-                          <span className="text-sm font-semibold capitalize text-slate-500">{formatMonth(client.createdAt)}</span>
+                          <span className="flex items-center gap-3 font-black text-slate-800"><span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-black text-white">{clientAvatarUrls[client.id] ? <Image loader={({ src }) => src} unoptimized src={clientAvatarUrls[client.id]} alt="" fill sizes="40px" className="object-cover" /> : client.name.charAt(0).toUpperCase()}</span>{client.name}</span>
+                          <span className="text-sm font-semibold capitalize text-slate-500">{formatMonth(client.startMonth || client.createdAt)}</span>
                           <span className="text-sm font-black text-slate-700">{services.length}</span>
                           <span className={`w-fit rounded-full border px-3 py-1 text-xs font-black ${status?.color || 'border-slate-200 bg-slate-50 text-slate-500'}`}>{status?.label || 'Sin registro este mes'}</span>
                           <ChevronRight className="hidden h-5 w-5 text-slate-300 md:block" />
@@ -1736,6 +1863,50 @@ export default function App({ currentUser }: { currentUser: User }) {
                 {!monthlyTasks.some(task => task.client === selectedClientForModal.id) && <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-semibold text-slate-400">No hay tareas para este cliente en {monthLabel}.</div>}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Ficha de Cliente */}
+      {isClientProfileModalOpen && selectedClientProfile && isAdmin && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between bg-black px-6 py-5 text-white">
+              <div><p className="text-xs font-black uppercase tracking-[0.18em] text-[#26d966]">Ficha de cliente</p><h3 className="mt-1 text-xl font-black">Editar {selectedClientProfile.name}</h3></div>
+              <button onClick={() => setIsClientProfileModalOpen(false)} className="rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-white" aria-label="Cerrar"><X className="h-5 w-5" /></button>
+            </div>
+            <form className="overflow-y-auto p-6" onSubmit={event => { event.preventDefault(); void saveClientProfile(new FormData(event.currentTarget)); }}>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 flex items-center text-sm font-black text-slate-700"><Camera className="mr-2 h-4 w-4" />Foto de perfil</span>
+                  <input type="file" name="avatar" accept="image/jpeg,image/png,image/webp" className="block w-full rounded-xl border border-slate-300 bg-slate-50 p-2.5 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-black file:px-3 file:py-2 file:font-bold file:text-white" />
+                  <span className="mt-2 block text-xs text-slate-400">JPG, PNG o WebP · máximo 5 MB.</span>
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-slate-700">Cliente desde</span>
+                  <input type="month" value={clientProfileDraft.startMonth} onChange={event => setClientProfileDraft(previous => ({ ...previous, startMonth: event.target.value }))} className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-[#26d966]" />
+                  <span className="mt-2 block text-xs text-slate-400">Puedes elegir cualquier mes y año.</span>
+                </label>
+              </div>
+
+              <div className="mt-7 border-t border-slate-100 pt-6">
+                <div className="mb-4 flex items-center justify-between"><div><h4 className="font-black text-slate-800">Enlaces importantes</h4><p className="text-xs text-slate-500">Añade Drive, página web o cualquier red social.</p></div><button type="button" onClick={() => setClientProfileDraft(previous => ({ ...previous, importantLinks: [...previous.importantLinks, { label: '', url: '' }] }))} className="inline-flex items-center rounded-lg bg-emerald-50 px-3 py-2 text-xs font-black text-[#1b5b3b]"><Plus className="mr-1 h-4 w-4" />Añadir</button></div>
+                <div className="space-y-3">
+                  {clientProfileDraft.importantLinks.map((link, index) => (
+                    <div key={index} className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[0.8fr_1.4fr_40px]">
+                      <input value={link.label} onChange={event => setClientProfileDraft(previous => ({ ...previous, importantLinks: previous.importantLinks.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item) }))} placeholder="Ej: Carpeta de Drive" className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#26d966]" />
+                      <input type="text" inputMode="url" value={link.url} onChange={event => setClientProfileDraft(previous => ({ ...previous, importantLinks: previous.importantLinks.map((item, itemIndex) => itemIndex === index ? { ...item, url: event.target.value } : item) }))} placeholder="drive.google.com/…" className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#26d966]" />
+                      <button type="button" onClick={() => setClientProfileDraft(previous => ({ ...previous, importantLinks: previous.importantLinks.filter((_, itemIndex) => itemIndex !== index) }))} className="flex items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500" aria-label="Eliminar enlace"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-7 flex justify-end gap-3 border-t border-slate-100 pt-5">
+                <button type="button" onClick={() => setIsClientProfileModalOpen(false)} className="rounded-lg px-5 py-2.5 font-bold text-slate-600 hover:bg-slate-100">Cancelar</button>
+                <button type="submit" disabled={isSavingClientProfile} className="inline-flex items-center rounded-lg bg-[#26d966] px-5 py-2.5 font-black text-black disabled:opacity-50">{isSavingClientProfile && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Guardar ficha</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
