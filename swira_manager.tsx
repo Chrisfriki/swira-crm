@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import type { User } from '@supabase/supabase-js';
-import { Plus, X, CheckCircle2, Circle, Clock, Tag, ChevronLeft, ChevronRight, CalendarDays, LayoutDashboard, Trello, Activity, Calendar as CalendarIcon, Users, Edit3, Trash2, FileText, Upload, Receipt, Download, Loader2, AlertCircle, Euro, LogOut, ShieldCheck } from 'lucide-react';
+import { Plus, X, CheckCircle2, Circle, Clock, Tag, ChevronLeft, ChevronRight, CalendarDays, LayoutDashboard, Trello, Activity, Calendar as CalendarIcon, Users, Edit3, Trash2, FileText, Upload, Receipt, Download, Loader2, AlertCircle, Euro, LogOut, ShieldCheck, Building2, ArrowLeft, Search, FileDown, BriefcaseBusiness } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 
 // ---------------------------------------------------------
@@ -26,13 +26,13 @@ const TEAM = [
 ];
 
 const INITIAL_CLIENTS = [
-  { id: 'c1', name: 'Alcacenter', type: 'external' },
-  { id: 'c2', name: 'inku_sushi', type: 'external' },
-  { id: 'c3', name: 'Merca China', type: 'external' },
-  { id: 'c4', name: 'Shushi Tok', type: 'external' },
-  { id: 'c5', name: 'SpaceZoneJump', type: 'external' },
-  { id: 'c6', name: 'swiraes', type: 'external' },
-  { id: 'c7', name: 'Welding Systems', type: 'external' }
+  { id: 'c1', name: 'Alcacenter', type: 'external', createdAt: null, updatedAt: null },
+  { id: 'c2', name: 'inku_sushi', type: 'external', createdAt: null, updatedAt: null },
+  { id: 'c3', name: 'Merca China', type: 'external', createdAt: null, updatedAt: null },
+  { id: 'c4', name: 'Shushi Tok', type: 'external', createdAt: null, updatedAt: null },
+  { id: 'c5', name: 'SpaceZoneJump', type: 'external', createdAt: null, updatedAt: null },
+  { id: 'c6', name: 'swiraes', type: 'external', createdAt: null, updatedAt: null },
+  { id: 'c7', name: 'Welding Systems', type: 'external', createdAt: null, updatedAt: null }
 ];
 
 const STANDARD_WORKFLOW = [
@@ -64,7 +64,7 @@ const QUADRANTS = [
 ];
 
 const INVOICE_STATUSES = [
-  { id: 'pending_send', label: 'Pendiente de enviar', color: 'border-amber-300 bg-amber-50 text-amber-800' },
+  { id: 'pending_send', label: 'Pendiente de adjuntar/enviar', color: 'border-amber-300 bg-amber-50 text-amber-800' },
   { id: 'sent', label: 'Enviada · pendiente de pago', color: 'border-blue-300 bg-blue-50 text-blue-800' },
   { id: 'paid', label: 'Pagada', color: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
 ];
@@ -83,6 +83,8 @@ const mapTaskFromDb = (task) => ({
   time: task.estimated_time,
   quantity: task.quantity,
   people: task.people,
+  createdAt: task.created_at,
+  updatedAt: task.updated_at,
 });
 
 const mapTaskToDb = (task) => ({
@@ -138,6 +140,7 @@ export default function App({ currentUser }: { currentUser: User }) {
   const [storageReady, setStorageReady] = useState(false);
   const [syncError, setSyncError] = useState('');
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [invoiceClientId, setInvoiceClientId] = useState('');
   const [isUploadingInvoice, setIsUploadingInvoice] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [filterAssignee, setFilterAssignee] = useState('all');
@@ -145,7 +148,8 @@ export default function App({ currentUser }: { currentUser: User }) {
   const [editingTask, setEditingTask] = useState(null);
   const [draggedTask, setDraggedTask] = useState(null);
   const [selectedClientForModal, setSelectedClientForModal] = useState(null); // Nuevo Panel de Cliente
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false); // Modal de confirmación de reset
+  const [selectedClientProfile, setSelectedClientProfile] = useState(null);
+  const [clientSearch, setClientSearch] = useState('');
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false); // Modal de nuevo cliente
 
   useEffect(() => {
@@ -169,23 +173,16 @@ export default function App({ currentUser }: { currentUser: User }) {
         if (firstError) throw firstError;
 
         if (!clientsResult.data?.length) {
-          const initialClients = savedClients || INITIAL_CLIENTS;
-          const initialTasks = savedTasks || generateInitialTasks(initialClients);
-          const { error: clientsError } = await supabase.from('clients').upsert(
-            initialClients.map(client => ({ ...client, updated_at: new Date().toISOString() }))
-          );
-          if (clientsError) throw clientsError;
-          const { error: tasksError } = await supabase.from('tasks').upsert(initialTasks.map(mapTaskToDb));
-          if (tasksError) throw tasksError;
-          setClients(initialClients);
-          setTasks(initialTasks);
+          setClients(savedClients || INITIAL_CLIENTS);
+          setTasks(savedTasks || generateInitialTasks(savedClients || INITIAL_CLIENTS));
         } else {
-          setClients(clientsResult.data.map(client => ({ id: client.id, name: client.name, type: client.type })));
+          setClients(clientsResult.data.map(client => ({ id: client.id, name: client.name, type: client.type, createdAt: client.created_at, updatedAt: client.updated_at })));
           setTasks((tasksResult.data || []).map(mapTaskFromDb));
         }
         setInvoices(invoicesResult.data || []);
+        setSyncError('');
       } catch (error) {
-        setSyncError(error instanceof Error ? error.message : 'No se pudo conectar con Supabase.');
+        setSyncError(error && typeof error === 'object' && 'message' in error ? String(error.message) : 'No se pudo conectar con Supabase.');
       } finally {
         setStorageReady(true);
       }
@@ -200,17 +197,6 @@ export default function App({ currentUser }: { currentUser: User }) {
     window.localStorage.setItem('swira-crm-v1-tasks', JSON.stringify(tasks));
   }, [clients, storageReady, tasks]);
 
-  useEffect(() => {
-    if (!storageReady || !supabase) return;
-    const syncData = async () => {
-      const { error } = tasks.length
-        ? await supabase.from('tasks').upsert(tasks.map(mapTaskToDb))
-        : { error: null };
-      if (error) setSyncError(error.message);
-    };
-    void syncData();
-  }, [storageReady, tasks]);
-  
   // Calendario
   const [currentDate, setCurrentDate] = useState(new Date());
   const [calendarView, setCalendarView] = useState('month'); // 'month' o 'week'
@@ -297,9 +283,7 @@ export default function App({ currentUser }: { currentUser: User }) {
   const handleDrop = (e, statusId) => {
     e.preventDefault();
     if (draggedTask) {
-      setTasks(prev => prev.map(t => 
-        t.id === draggedTask ? { ...t, status: statusId } : t
-      ));
+      void updateTask(draggedTask, { status: statusId });
     }
     setDraggedTask(null);
   };
@@ -315,9 +299,7 @@ export default function App({ currentUser }: { currentUser: User }) {
     }
 
     if (draggedTask) {
-      setTasks(prev => prev.map(t => 
-        t.id === draggedTask ? { ...t, dueDate: dateStr, startTime: startTimeStr } : t
-      ));
+      void updateTask(draggedTask, { dueDate: dateStr, startTime: startTimeStr });
     }
     setDraggedTask(null);
   };
@@ -325,9 +307,7 @@ export default function App({ currentUser }: { currentUser: User }) {
   const handleMatrixDrop = (e, newUrgency, newImportance) => {
     e.preventDefault();
     if (draggedTask) {
-      setTasks(prev => prev.map(t => 
-        t.id === draggedTask ? { ...t, urgency: newUrgency, importance: newImportance } : t
-      ));
+      void updateTask(draggedTask, { urgency: newUrgency, importance: newImportance });
     }
     setDraggedTask(null);
   };
@@ -350,12 +330,38 @@ export default function App({ currentUser }: { currentUser: User }) {
     setIsModalOpen(true);
   };
 
-  const saveTask = (taskData) => {
-    if (editingTask) {
-      setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...taskData } : t));
-    } else {
-      setTasks(prev => [...prev, { ...taskData, id: Date.now().toString() }]);
+  const updateTask = async (id, changes) => {
+    const currentTask = tasks.find(task => task.id === id);
+    if (!currentTask) return;
+    const nextTask = { ...currentTask, ...changes };
+    setTasks(prev => prev.map(task => task.id === id ? nextTask : task));
+    if (!supabase) return;
+    const { error } = await supabase.from('tasks').update(mapTaskToDb(nextTask)).eq('id', id);
+    if (error) {
+      setTasks(prev => prev.map(task => task.id === id ? currentTask : task));
+      setSyncError(error.message);
     }
+  };
+
+  const saveTask = async (taskData) => {
+    const nextTask = editingTask
+      ? { ...editingTask, ...taskData }
+      : { ...taskData, id: Date.now().toString() };
+
+    if (supabase) {
+      const query = editingTask
+        ? supabase.from('tasks').update(mapTaskToDb(nextTask)).eq('id', editingTask.id)
+        : supabase.from('tasks').insert(mapTaskToDb(nextTask));
+      const { error } = await query;
+      if (error) {
+        setSyncError(error.message);
+        return;
+      }
+    }
+
+    setTasks(prev => editingTask
+      ? prev.map(task => task.id === editingTask.id ? nextTask : task)
+      : [...prev, nextTask]);
     setIsModalOpen(false);
   };
 
@@ -371,13 +377,17 @@ export default function App({ currentUser }: { currentUser: User }) {
       id: 'c_' + Date.now(),
       name: clientName.trim(),
       type: 'external',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     const newTasks = generateTasksForClient(newClient);
 
     if (supabase) {
       const { error: clientError } = await supabase.from('clients').insert({
-        ...newClient,
-        updated_at: new Date().toISOString(),
+        id: newClient.id,
+        name: newClient.name,
+        type: newClient.type,
+        updated_at: newClient.updatedAt,
       });
       if (clientError) {
         setSyncError(clientError.message);
@@ -515,7 +525,33 @@ export default function App({ currentUser }: { currentUser: User }) {
   endOfWeek.setDate(endOfWeek.getDate() + (dayEnd === 0 ? 0 : 7 - dayEnd));
   const endOfWeekStr = toLocalISODate(endOfWeek);
 
+  const currentMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
   const filteredTasks = tasks.filter(t => filterAssignee === 'all' || t.assignees.includes(filterAssignee));
+  const scheduledThisMonth = tasks.filter(task => task.dueDate?.startsWith(currentMonthKey));
+  const scheduledServiceKeys = new Set(scheduledThisMonth.map(task => `${task.client}::${task.title}`));
+  const latestUnplannedByService = new Map();
+  tasks.filter(task => !task.dueDate).forEach(task => {
+    const key = `${task.client}::${task.title}`;
+    const previous = latestUnplannedByService.get(key);
+    const taskOrder = task.createdAt || task.id;
+    const previousOrder = previous?.createdAt || previous?.id || '';
+    if (!previous || taskOrder >= previousOrder) latestUnplannedByService.set(key, task);
+  });
+  const monthlyTasks = [
+    ...scheduledThisMonth,
+    ...Array.from(latestUnplannedByService.entries())
+      .filter(([key]) => !scheduledServiceKeys.has(key))
+      .map(([, task]) => task),
+  ];
+  const periodFilteredTasks = monthlyTasks.filter(task => filterAssignee === 'all' || task.assignees.includes(filterAssignee));
+  const monthLabel = `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+  const searchedClients = clients.filter(client => client.name.toLowerCase().includes(clientSearch.trim().toLowerCase()));
+  const printableDates = calendarView === 'week'
+    ? getDaysInWeek(currentDate).slice(0, 5)
+    : getDaysInMonth(currentDate).filter(Boolean);
+  const calendarPeriodLabel = calendarView === 'week'
+    ? `${printableDates[0]?.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${printableDates[printableDates.length - 1]?.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`
+    : monthLabel;
 
   // Ordenar tareas: Primero las Urgentes(5,4) y luego Alta Importancia(5,4)
   const sortTasks = (tasksList) => {
@@ -537,6 +573,18 @@ export default function App({ currentUser }: { currentUser: User }) {
     else { label = 'Posponer'; color = 'bg-slate-100 text-slate-700 border-slate-200'; }
     return { label, color };
   };
+
+  const getClientServices = (clientId) => {
+    const services = new Map();
+    tasks.filter(task => task.client === clientId).forEach(task => {
+      if (!services.has(task.title)) services.set(task.title, task);
+    });
+    return Array.from(services.values());
+  };
+
+  const formatMonth = (value) => value
+    ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+    : 'Sin fecha';
 
   const TaskCard = ({ task, compact = false }) => {
     const assignedTeam = TEAM.filter(member => task.assignees.includes(member.id));
@@ -637,7 +685,8 @@ export default function App({ currentUser }: { currentUser: User }) {
   };
 
   return (
-    <div className={`flex h-screen bg-[${BRAND_COLORS.bege}] overflow-hidden font-sans text-slate-800`}>
+    <>
+    <div className={`app-shell flex h-screen bg-[${BRAND_COLORS.bege}] overflow-hidden font-sans text-slate-800`}>
       {/* Sidebar Fija (Menú Izquierdo) */}
       <div className={`w-64 bg-white border-r border-slate-200 flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10`}>
         {/* LOGO AREA */}
@@ -659,6 +708,7 @@ export default function App({ currentUser }: { currentUser: User }) {
             { id: 'kanban', icon: Trello, label: 'Tablero procesos' },
             { id: 'calendar', icon: CalendarDays, label: 'Calendario' },
             { id: 'matrix', icon: Activity, label: 'Matriz Imp/Urg' },
+            ...(isAdmin ? [{ id: 'clients', icon: Building2, label: 'Clientes' }] : []),
             ...(isAdmin ? [{ id: 'invoices', icon: FileText, label: 'Facturas' }] : []),
           ].map(item => (
             <button
@@ -708,6 +758,7 @@ export default function App({ currentUser }: { currentUser: User }) {
             {activeTab === 'kanban' && 'Tablero de Procesos'}
             {activeTab === 'calendar' && 'Calendario de Equipo'}
             {activeTab === 'matrix' && 'Matriz de Eisenhower'}
+            {activeTab === 'clients' && 'Clientes'}
             {activeTab === 'invoices' && 'Facturación mensual'}
           </h1>
           
@@ -750,10 +801,16 @@ export default function App({ currentUser }: { currentUser: User }) {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 animate-in fade-in duration-300 h-full overflow-y-auto pb-10">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 col-span-1 md:col-span-4 flex justify-between items-center bg-gradient-to-r from-slate-50 to-white">
                 <div>
-                  <h2 className="text-2xl font-bold text-slate-800 mb-1">Resumen del Mes</h2>
-                  <p className="text-slate-500">Métricas actuales del equipo Swira.</p>
+                  <h2 className="text-2xl font-bold text-slate-800 mb-1">Resumen de {monthLabel}</h2>
+                  <p className="text-slate-500">Solo se muestran las tareas del mes seleccionado; las antiguas ya no se acumulan.</p>
                 </div>
-                {isAdmin && <div className="flex space-x-3">
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <div className="flex items-center rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+                    <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="rounded-md p-2 text-slate-500 hover:bg-slate-100" aria-label="Mes anterior"><ChevronLeft className="h-4 w-4" /></button>
+                    <span className="min-w-36 px-2 text-center text-sm font-black capitalize text-slate-700">{monthLabel}</span>
+                    <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))} className="rounded-md p-2 text-slate-500 hover:bg-slate-100" aria-label="Mes siguiente"><ChevronRight className="h-4 w-4" /></button>
+                  </div>
+                  {isAdmin && <div>
                   <button
                     onClick={() => setIsNewClientModalOpen(true)}
                     className={`px-4 py-2 bg-white text-slate-700 border border-slate-200 text-sm font-bold rounded-lg shadow-sm hover:bg-slate-50 transition-colors flex items-center`}
@@ -761,21 +818,15 @@ export default function App({ currentUser }: { currentUser: User }) {
                     <Plus className="w-4 h-4 mr-2" />
                     Nuevo Cliente
                   </button>
-                  <button 
-                    onClick={() => setIsResetConfirmOpen(true)}
-                    className={`px-4 py-2 bg-[${BRAND_COLORS.preto}] text-white text-sm font-bold rounded-lg shadow-sm hover:bg-slate-800 transition-colors flex items-center`}
-                  >
-                    <Activity className="w-4 h-4 mr-2" />
-                    Iniciar Nuevo Mes
-                  </button>
-                </div>}
+                  </div>}
+                </div>
               </div>
 
               {[
-                { label: 'Total Pendientes', val: filteredTasks.filter(t => t.status === 'todo').length, color: 'text-slate-700', icon: Circle },
-                { label: 'En Proceso', val: filteredTasks.filter(t => t.status === 'in_progress').length, color: 'text-blue-600', icon: Activity },
-                { label: 'Fuegos a apagar', val: filteredTasks.filter(t => t.status === 'fire').length, color: 'text-red-600', icon: Circle },
-                { label: 'Completadas', val: filteredTasks.filter(t => t.status === 'done').length, color: `text-[${BRAND_COLORS.verdeEscuro}]`, icon: CheckCircle2 }
+                { label: 'Pendientes del mes', val: periodFilteredTasks.filter(t => t.status === 'todo').length, color: 'text-slate-700', icon: Circle },
+                { label: 'En proceso', val: periodFilteredTasks.filter(t => t.status === 'in_progress').length, color: 'text-blue-600', icon: Activity },
+                { label: 'Fuegos a apagar', val: periodFilteredTasks.filter(t => t.status === 'fire').length, color: 'text-red-600', icon: Circle },
+                { label: 'Completadas', val: periodFilteredTasks.filter(t => t.status === 'done').length, color: `text-[${BRAND_COLORS.verdeEscuro}]`, icon: CheckCircle2 }
               ].map((stat, i) => (
                 <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between group hover:shadow-md transition-shadow">
                   <div>
@@ -796,7 +847,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {clients.map(client => {
-                    const clientTasks = tasks.filter(t => t.client === client.id);
+                    const clientTasks = monthlyTasks.filter(t => t.client === client.id);
                     const doneTasks = clientTasks.filter(t => t.status === 'done').length;
                     const totalTasks = clientTasks.length;
                     const percentage = totalTasks === 0 ? 0 : Math.round((doneTasks / totalTasks) * 100);
@@ -886,7 +937,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                 <div className="flex items-center space-x-4">
                   <h2 className="text-lg font-bold text-slate-800 flex items-center w-48">
                     <CalendarDays className={`w-5 h-5 mr-2 text-[${BRAND_COLORS.verdeMedio}]`} />
-                    {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
+                    {calendarPeriodLabel}
                   </h2>
                   <div className="flex items-center space-x-2">
                     <button onClick={prevPeriod} className="p-1.5 hover:bg-white rounded-lg transition-colors border border-transparent hover:border-slate-200 shadow-sm"><ChevronLeft className="w-5 h-5 text-slate-600" /></button>
@@ -894,19 +945,18 @@ export default function App({ currentUser }: { currentUser: User }) {
                   </div>
                 </div>
                 
-                <div className="flex bg-slate-200/50 p-1 rounded-lg">
-                  <button 
-                    onClick={() => setCalendarView('month')}
-                    className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${calendarView === 'month' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  >Mes</button>
-                  <button 
-                    onClick={() => setCalendarView('week')}
-                    className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${calendarView === 'week' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  >Semana</button>
-                  <button 
-                    onClick={() => setCalendarView('day')}
-                    className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${calendarView === 'day' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  >Día</button>
+                <div className="flex items-center gap-3">
+                  <div className="flex bg-slate-200/50 p-1 rounded-lg">
+                    <button
+                      onClick={() => setCalendarView('month')}
+                      className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${calendarView === 'month' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >Mes</button>
+                    <button
+                      onClick={() => setCalendarView('week')}
+                      className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${calendarView === 'week' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >Semana</button>
+                  </div>
+                  <button onClick={() => window.print()} className="flex items-center rounded-lg bg-black px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-[#1b5b3b]"><FileDown className="mr-2 h-4 w-4" />Exportar PDF</button>
                 </div>
               </div>
 
@@ -1147,16 +1197,113 @@ export default function App({ currentUser }: { currentUser: User }) {
             </div>
           )}
 
+          {/* Clientes */}
+          {activeTab === 'clients' && isAdmin && (
+            <div className="h-full overflow-y-auto pb-10">
+              {selectedClientProfile ? (() => {
+                const clientInvoices = invoices.filter(invoice => invoice.client_id === selectedClientProfile.id);
+                const services = getClientServices(selectedClientProfile.id);
+                const clientMonthTasks = monthlyTasks.filter(task => task.client === selectedClientProfile.id);
+                const completed = clientMonthTasks.filter(task => task.status === 'done').length;
+                return (
+                  <div className="space-y-6">
+                    <button onClick={() => setSelectedClientProfile(null)} className="flex items-center text-sm font-bold text-slate-500 hover:text-slate-900"><ArrowLeft className="mr-2 h-4 w-4" />Volver a clientes</button>
+                    <section className="rounded-2xl bg-black p-7 text-white shadow-sm">
+                      <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#26d966]">Ficha de cliente</p>
+                          <h2 className="mt-2 text-3xl font-black">{selectedClientProfile.name}</h2>
+                          <p className="mt-2 text-sm text-white/60">Cliente desde {formatMonth(selectedClientProfile.createdAt)}</p>
+                        </div>
+                        <div className="flex gap-3">
+                          <div className="rounded-xl bg-white/10 px-4 py-3"><p className="text-xs text-white/50">Servicios</p><p className="text-xl font-black">{services.length}</p></div>
+                          <div className="rounded-xl bg-white/10 px-4 py-3"><p className="text-xs text-white/50">Facturas</p><p className="text-xl font-black">{clientInvoices.length}</p></div>
+                          <div className="rounded-xl bg-[#26d966] px-4 py-3 text-black"><p className="text-xs font-bold">{monthLabel}</p><p className="text-xl font-black">{completed}/{clientMonthTasks.length}</p></div>
+                        </div>
+                      </div>
+                    </section>
+
+                    <div className="grid gap-6 xl:grid-cols-[1fr_1.35fr]">
+                      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                        <div className="mb-5 flex items-center gap-3"><BriefcaseBusiness className="h-5 w-5 text-[#1b5b3b]" /><div><h3 className="font-black text-slate-800">Servicios incluidos</h3><p className="text-xs text-slate-500">Extraídos de las tareas configuradas para el cliente.</p></div></div>
+                        <div className="space-y-3">
+                          {services.map(service => (
+                            <div key={service.title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                              <p className="font-bold text-slate-800">{service.title}</p>
+                              <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-slate-500">
+                                {service.quantity && <span className="rounded-md bg-white px-2 py-1">{service.quantity}</span>}
+                                {service.time && <span className="rounded-md bg-white px-2 py-1">{service.time}</span>}
+                                {service.people && <span className="rounded-md bg-white px-2 py-1">{service.people} persona{service.people > 1 ? 's' : ''}</span>}
+                              </div>
+                            </div>
+                          ))}
+                          {!services.length && <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">Sin servicios configurados.</p>}
+                        </div>
+                      </section>
+
+                      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                        <div className="mb-5 flex items-center justify-between"><div><h3 className="font-black text-slate-800">Historial de facturación</h3><p className="text-xs text-slate-500">Control permanente de los documentos generados en Holded.</p></div><button onClick={() => { setInvoiceClientId(selectedClientProfile.id); setIsInvoiceModalOpen(true); }} className="rounded-lg bg-[#26d966] px-3 py-2 text-xs font-black text-black"><Plus className="mr-1 inline h-4 w-4" />Añadir mes</button></div>
+                        <div className="space-y-3">
+                          {clientInvoices.map(invoice => {
+                            const status = INVOICE_STATUSES.find(item => item.id === invoice.status);
+                            return (
+                              <article key={invoice.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div><p className="font-black capitalize text-slate-800">{formatMonth(invoice.billing_month)}</p><p className="mt-1 text-xs font-semibold text-slate-500">{invoice.invoice_number || 'Sin número'} · {Number(invoice.amount || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p></div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className={`rounded-full border px-3 py-1 text-xs font-black ${status?.color || 'border-slate-200 bg-slate-50 text-slate-600'}`}>{status?.label || invoice.status}</span>
+                                  {invoice.invoice_path && <button onClick={() => void openBillingDocument(invoice.invoice_path)} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50" title="Abrir factura"><FileText className="h-4 w-4" /></button>}
+                                  {invoice.receipt_path && <button onClick={() => void openBillingDocument(invoice.receipt_path)} className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-emerald-600" title="Abrir justificante"><Receipt className="h-4 w-4" /></button>}
+                                </div>
+                              </article>
+                            );
+                          })}
+                          {!clientInvoices.length && <p className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-400">Todavía no hay meses de facturación registrados.</p>}
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                );
+              })() : (
+                <div>
+                  <div className="mb-6 flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center">
+                    <div><h2 className="text-2xl font-black text-slate-800">Cartera de clientes</h2><p className="mt-1 text-sm text-slate-500">Servicios, antigüedad y facturación mensual en una única ficha.</p></div>
+                    <div className="flex gap-3">
+                      <label className="relative block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={clientSearch} onChange={event => setClientSearch(event.target.value)} placeholder="Buscar cliente…" className="rounded-xl border border-slate-300 bg-slate-50 py-2.5 pl-10 pr-4 text-sm outline-none focus:border-[#26d966]" /></label>
+                      <button onClick={() => setIsNewClientModalOpen(true)} className="flex items-center rounded-xl bg-[#26d966] px-4 py-2.5 text-sm font-black text-black"><Plus className="mr-2 h-4 w-4" />Nuevo cliente</button>
+                    </div>
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="hidden grid-cols-[1.5fr_1fr_0.7fr_1.1fr_36px] gap-4 border-b border-slate-200 bg-slate-50 px-6 py-3 text-xs font-black uppercase tracking-wider text-slate-400 md:grid"><span>Cliente</span><span>Desde</span><span>Servicios</span><span>Factura del mes</span><span /></div>
+                    {searchedClients.map(client => {
+                      const services = getClientServices(client.id);
+                      const currentInvoice = invoices.find(invoice => invoice.client_id === client.id && invoice.billing_month?.startsWith(currentMonthKey));
+                      const status = currentInvoice ? INVOICE_STATUSES.find(item => item.id === currentInvoice.status) : null;
+                      return (
+                        <button key={client.id} onClick={() => setSelectedClientProfile(client)} className="grid w-full grid-cols-1 gap-3 border-b border-slate-100 px-6 py-5 text-left transition last:border-0 hover:bg-slate-50 md:grid-cols-[1.5fr_1fr_0.7fr_1.1fr_36px] md:items-center md:gap-4">
+                          <span className="flex items-center gap-3 font-black text-slate-800"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-black text-white">{client.name.charAt(0).toUpperCase()}</span>{client.name}</span>
+                          <span className="text-sm font-semibold capitalize text-slate-500">{formatMonth(client.createdAt)}</span>
+                          <span className="text-sm font-black text-slate-700">{services.length}</span>
+                          <span className={`w-fit rounded-full border px-3 py-1 text-xs font-black ${status?.color || 'border-slate-200 bg-slate-50 text-slate-500'}`}>{status?.label || 'Sin registro este mes'}</span>
+                          <ChevronRight className="hidden h-5 w-5 text-slate-300 md:block" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Facturación */}
           {activeTab === 'invoices' && isAdmin && (
             <div className="h-full overflow-y-auto pb-10">
               <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-2xl font-black text-slate-800">Facturas de Holded</h2>
-                  <p className="mt-1 text-sm text-slate-500">Adjunta la factura mensual, controla el cobro y guarda su justificante.</p>
+                  <h2 className="text-2xl font-black text-slate-800">Control de facturación</h2>
+                  <p className="mt-1 text-sm text-slate-500">Aquí no se crean facturas: se controla el PDF generado en Holded, su envío y su cobro.</p>
                 </div>
-                <button onClick={() => setIsInvoiceModalOpen(true)} className={`flex items-center justify-center rounded-xl bg-[${BRAND_COLORS.verdeMedio}] px-5 py-3 font-bold text-black shadow-sm transition hover:bg-[${BRAND_COLORS.verdeEscuro}] hover:text-white`}>
-                  <Plus className="mr-2 h-5 w-5" /> Nueva factura
+                <button onClick={() => { setInvoiceClientId(''); setIsInvoiceModalOpen(true); }} className={`flex items-center justify-center rounded-xl bg-[${BRAND_COLORS.verdeMedio}] px-5 py-3 font-bold text-black shadow-sm transition hover:bg-[${BRAND_COLORS.verdeEscuro}] hover:text-white`}>
+                  <Plus className="mr-2 h-5 w-5" /> Añadir mes
                 </button>
               </div>
 
@@ -1249,8 +1396,8 @@ export default function App({ currentUser }: { currentUser: User }) {
           <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className={`flex items-center justify-between bg-[${BRAND_COLORS.preto}] px-6 py-4`}>
               <div>
-                <h3 className="text-xl font-black text-white">Registrar factura mensual</h3>
-                <p className="text-xs text-slate-400">Sube el documento exportado desde Holded.</p>
+                <h3 className="text-xl font-black text-white">Añadir control mensual</h3>
+                <p className="text-xs text-slate-400">La factura se crea en Holded; aquí solo registras el seguimiento y sus archivos.</p>
               </div>
               <button onClick={() => setIsInvoiceModalOpen(false)} className="rounded-lg p-1 text-white/70 hover:bg-white/10 hover:text-white"><X className="h-6 w-6" /></button>
             </div>
@@ -1258,13 +1405,13 @@ export default function App({ currentUser }: { currentUser: User }) {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-bold text-slate-700">Cliente</label>
-                  <select name="clientId" required className={`w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}]`}>
+                  <select name="clientId" required defaultValue={invoiceClientId} className={`w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}]`}>
                     <option value="">Selecciona un cliente</option>
                     {clients.map(client => <option key={client.id} value={client.id}>{client.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-bold text-slate-700">Mes facturado</label>
+                  <label className="mb-1 block text-sm font-bold text-slate-700">Mes de control</label>
                   <input type="month" name="billingMonth" required defaultValue={new Date().toISOString().slice(0, 7)} className={`w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}]`} />
                 </div>
                 <div>
@@ -1289,7 +1436,7 @@ export default function App({ currentUser }: { currentUser: User }) {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className="cursor-pointer rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 p-5 text-center transition hover:border-blue-400">
                   <FileText className="mx-auto mb-2 h-7 w-7 text-blue-500" />
-                  <span className="block text-sm font-black text-slate-700">Adjuntar factura</span>
+                  <span className="block text-sm font-black text-slate-700">Adjuntar PDF de Holded</span>
                   <span className="mt-1 block text-xs text-slate-500">PDF, PNG, JPG o WebP · máx. 10 MB</span>
                   <input type="file" name="invoiceFile" accept="application/pdf,image/png,image/jpeg,image/webp" className="mt-3 block w-full text-xs text-slate-500" />
                 </label>
@@ -1307,7 +1454,7 @@ export default function App({ currentUser }: { currentUser: User }) {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button type="button" onClick={() => setIsInvoiceModalOpen(false)} className="rounded-lg px-5 py-2.5 font-bold text-slate-600 hover:bg-slate-100">Cancelar</button>
                 <button type="submit" disabled={isUploadingInvoice} className={`flex min-w-40 items-center justify-center rounded-lg bg-[${BRAND_COLORS.verdeMedio}] px-5 py-2.5 font-black text-black disabled:opacity-50`}>
-                  {isUploadingInvoice ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Subiendo…</> : <><Upload className="mr-2 h-4 w-4" />Guardar factura</>}
+                  {isUploadingInvoice ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Subiendo…</> : <><Upload className="mr-2 h-4 w-4" />Guardar control</>}
                 </button>
               </div>
             </form>
@@ -1347,7 +1494,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                 const descValue = String(formData.get('desc') || '');
                 const tmpl = STANDARD_WORKFLOW.find(w => w.title === title);
 
-                saveTask({
+                void saveTask({
                   title: title,
                   desc: descValue,
                   client: formData.get('client'),
@@ -1509,10 +1656,17 @@ export default function App({ currentUser }: { currentUser: User }) {
             </div>
             
             <div className="p-6 overflow-y-auto flex-1 bg-slate-50">
-              <p className="text-sm text-slate-500 mb-6 font-medium">Asigna el equipo, fecha y hora a las tareas pendientes de este cliente. Al ponerles fecha, aparecerán automáticamente en el Calendario y Tablero de procesos.</p>
+              <div className="mb-6 flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center">
+                <div><p className="font-black capitalize text-slate-800">Planificación de {monthLabel}</p><p className="mt-1 text-sm text-slate-500">Se muestra una sola tarea por servicio pendiente, evitando las copias acumuladas de meses anteriores.</p></div>
+                <div className="flex items-center rounded-lg bg-slate-100 p-1">
+                  <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="rounded-md p-2 hover:bg-white" aria-label="Mes anterior"><ChevronLeft className="h-4 w-4" /></button>
+                  <span className="min-w-32 text-center text-xs font-black capitalize">{monthLabel}</span>
+                  <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))} className="rounded-md p-2 hover:bg-white" aria-label="Mes siguiente"><ChevronRight className="h-4 w-4" /></button>
+                </div>
+              </div>
               
               <div className="space-y-3">
-                {tasks.filter(t => t.client === selectedClientForModal.id).map(task => (
+                {monthlyTasks.filter(t => t.client === selectedClientForModal.id).map(task => (
                   <div key={task.id} className={`bg-white border rounded-xl p-4 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 shadow-sm transition-all ${task.dueDate && task.assignees.length > 0 ? `border-[${BRAND_COLORS.verdeMedio}]/40 bg-[${BRAND_COLORS.verdeMedio}]/5` : 'border-slate-200 hover:border-slate-300'}`}>
                     
                     {/* Info de Tarea */}
@@ -1541,7 +1695,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                                   const newAssignees = isAssigned 
                                     ? task.assignees.filter(id => id !== member.id)
                                     : [...task.assignees, member.id];
-                                  setTasks(prev => prev.map(t => t.id === task.id ? { ...t, assignees: newAssignees } : t));
+                                  void updateTask(task.id, { assignees: newAssignees });
                                 }}
                                 className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all border-2 ${isAssigned ? `${member.color} border-white shadow-md scale-110` : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-200'}`}
                                 title={member.name}
@@ -1561,7 +1715,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                         <input 
                           type="date" 
                           value={task.dueDate || ''}
-                          onChange={(e) => setTasks(prev => prev.map(t => t.id === task.id ? { ...t, dueDate: e.target.value } : t))}
+                          onChange={(e) => void updateTask(task.id, { dueDate: e.target.value })}
                           className={`px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}] outline-none text-slate-700 font-semibold cursor-pointer`} 
                         />
                       </div>
@@ -1571,7 +1725,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                         <input 
                           type="time" 
                           value={task.startTime || ''}
-                          onChange={(e) => setTasks(prev => prev.map(t => t.id === task.id ? { ...t, startTime: e.target.value } : t))}
+                          onChange={(e) => void updateTask(task.id, { startTime: e.target.value })}
                           className={`px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}] outline-none text-slate-700 font-semibold cursor-pointer`} 
                         />
                       </div>
@@ -1579,39 +1733,8 @@ export default function App({ currentUser }: { currentUser: User }) {
 
                   </div>
                 ))}
+                {!monthlyTasks.some(task => task.client === selectedClientForModal.id) && <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-semibold text-slate-400">No hay tareas para este cliente en {monthLabel}.</div>}
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Confirmación Reset Mensual */}
-      {isResetConfirmOpen && isAdmin && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col text-center p-8">
-            <div className={`w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4`}>
-              <Activity className="w-8 h-8" />
-            </div>
-            <h3 className="text-2xl font-black text-slate-800 mb-2">¿Iniciar nuevo mes?</h3>
-            <p className="text-slate-500 mb-6 font-medium">
-              Esto borrará todo el progreso actual. Las tareas de todos los clientes volverán a estar al 0%, sin fechas asignadas y volverán al panel de planificación (Inbox).
-            </p>
-            <div className="flex space-x-3 justify-center">
-              <button 
-                onClick={() => setIsResetConfirmOpen(false)} 
-                className="px-5 py-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl font-bold transition-colors"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={() => {
-                  setTasks(generateInitialTasks(clients));
-                  setIsResetConfirmOpen(false);
-                }} 
-                className={`px-5 py-2.5 bg-[${BRAND_COLORS.preto}] text-white hover:bg-slate-800 rounded-xl font-bold shadow-md transition-all`}
-              >
-                Sí, resetear todo
-              </button>
             </div>
           </div>
         </div>
@@ -1684,5 +1807,39 @@ export default function App({ currentUser }: { currentUser: User }) {
         .repeating-linear-gradient-45 { background-image: repeating-linear-gradient(45deg, #f1f5f9 0, #f1f5f9 10px, #e2e8f0 10px, #e2e8f0 20px); }
       `}} />
     </div>
+    <section className={`print-calendar ${calendarView === 'week' ? 'is-week' : 'is-month'}`}>
+      <header className="print-calendar-header">
+        <Image src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/branding/swira-logo.png`} alt="Swira" width={150} height={56} className="print-calendar-logo" />
+        <div>
+          <p className="print-calendar-kicker">Planificación de equipo</p>
+          <h1>Calendario {calendarView === 'week' ? 'semanal' : 'mensual'}</h1>
+          <p>{calendarPeriodLabel}{filterAssignee !== 'all' ? ` · ${TEAM.find(member => member.id === filterAssignee)?.name}` : ' · Todo el equipo'}</p>
+        </div>
+      </header>
+      <div className="print-calendar-grid" style={{ gridTemplateColumns: `repeat(${calendarView === 'week' ? 5 : 7}, minmax(0, 1fr))` }}>
+        {(calendarView === 'week' ? getDaysInWeek(currentDate).slice(0, 5) : getDaysInMonth(currentDate)).map((date, index) => {
+          if (!date) return <div key={`empty-${index}`} className="print-calendar-day print-calendar-empty" />;
+          const dateKey = toLocalISODate(date);
+          const dayTasks = sortTasks(filteredTasks.filter(task => task.dueDate === dateKey));
+          const visiblePrintTasks = calendarView === 'month' ? dayTasks.slice(0, 4) : dayTasks;
+          return (
+            <article key={dateKey} className="print-calendar-day">
+              <div className="print-calendar-date"><span>{dayNames[date.getDay() === 0 ? 6 : date.getDay() - 1]}</span><strong>{date.getDate()}</strong></div>
+              <div className="print-calendar-tasks">
+                {visiblePrintTasks.map(task => {
+                  const client = clients.find(item => item.id === task.client);
+                  const people = TEAM.filter(member => task.assignees.includes(member.id)).map(member => member.name).join(', ');
+                  return <div key={task.id} className={`print-calendar-task ${task.status === 'done' ? 'is-done' : ''}`}><b>{task.startTime || '—'} · {client?.name || 'Cliente'}</b><span>{task.title}</span>{people && <small>{people}</small>}</div>;
+                })}
+                {dayTasks.length > visiblePrintTasks.length && <span className="print-calendar-more">+{dayTasks.length - visiblePrintTasks.length} tareas más</span>}
+                {!dayTasks.length && <span className="print-calendar-no-tasks">Sin tareas</span>}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <footer className="print-calendar-footer">Generado desde Swira CRM · {new Date().toLocaleDateString('es-ES')}</footer>
+    </section>
+    </>
   );
 }
