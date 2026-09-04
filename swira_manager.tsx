@@ -760,7 +760,7 @@ export default function App({ currentUser }: { currentUser: User }) {
     && client.name.toLowerCase().includes(clientSearch.trim().toLowerCase())
   );
   const printableDates = calendarView === 'week'
-    ? getDaysInWeek(currentDate).slice(0, 5)
+    ? getDaysInWeek(currentDate)
     : getDaysInMonth(currentDate).filter(Boolean);
   const calendarPeriodLabel = calendarView === 'week'
     ? `${printableDates[0]?.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${printableDates[printableDates.length - 1]?.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`
@@ -1232,18 +1232,17 @@ export default function App({ currentUser }: { currentUser: User }) {
                       const dateStr = toLocalISODate(date);
                       const dayTasks = dateStr ? calendarFilteredTasks.filter(t => t.dueDate === dateStr) : [];
                       const isToday = dateStr === toLocalISODate(new Date());
-                      const isWeekend = date ? (date.getDay() === 0 || date.getDay() === 6) : false;
-                      
+
                       return (
                         <div 
                           key={i} 
                           className={`min-h-[120px] bg-white p-2 flex flex-col transition-colors
                             ${!date ? 'bg-slate-50/50' : ''} 
-                            ${isWeekend ? 'bg-slate-100/80 repeating-linear-gradient-45 cursor-not-allowed' : 'hover:bg-slate-50 cursor-pointer'}
+                            ${date ? 'hover:bg-slate-50 cursor-pointer' : ''}
                           `}
-                          onClick={() => { if(date && !isWeekend) openNewTaskModal(dateStr) }}
-                          onDragOver={(e) => { if(date && !isWeekend) handleDragOver(e); }}
-                          onDrop={(e) => { if(date && !isWeekend) handleCalendarDrop(e, dateStr, null); }}
+                          onClick={() => { if(date) openNewTaskModal(dateStr) }}
+                          onDragOver={(e) => { if(date) handleDragOver(e); }}
+                          onDrop={(e) => { if(date) handleCalendarDrop(e, dateStr, null); }}
                         >
                           {date && (
                             <>
@@ -1251,7 +1250,6 @@ export default function App({ currentUser }: { currentUser: User }) {
                                 <span className={`text-xs font-bold w-7 h-7 flex items-center justify-center rounded-full ${isToday ? `bg-[${BRAND_COLORS.verdeMedio}] text-[${BRAND_COLORS.preto}] shadow-md` : 'text-slate-700'}`}>
                                   {date.getDate()}
                                 </span>
-                                {isWeekend && <span className="text-[9px] font-bold text-slate-400 tracking-wider">DESCANSO</span>}
                               </div>
                               <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
                                 {dayTasks.map(task => <TaskCard key={task.id} task={task} compact />)}
@@ -1268,10 +1266,10 @@ export default function App({ currentUser }: { currentUser: User }) {
                   {/* Week & Day View Header */}
                   <div className="flex border-b border-slate-200 bg-white shadow-sm z-20">
                     <div className="w-16 flex-shrink-0 border-r border-slate-200 bg-slate-50"></div>
-                    {(calendarView === 'week' ? getDaysInWeek(currentDate).slice(0, 5) : [currentDate]).map((date, i) => {
+                    {(calendarView === 'week' ? getDaysInWeek(currentDate) : [currentDate]).map((date, i) => {
                       const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                       return (
-                      <div key={i} className={`flex-1 min-w-0 py-3 text-center text-xs font-bold border-r border-slate-200 ${isWeekend ? 'text-slate-400 bg-slate-50 repeating-linear-gradient-45' : 'text-slate-500'}`}>
+                      <div key={i} className={`flex-1 min-w-0 py-3 text-center text-xs font-bold border-r border-slate-200 ${isWeekend ? 'text-slate-500 bg-slate-50/60' : 'text-slate-500'}`}>
                         <div className="uppercase mb-1">{dayNames[date.getDay() === 0 ? 6 : date.getDay() - 1]}</div>
                         <div className={`inline-flex items-center justify-center w-7 h-7 rounded-full ${toLocalISODate(date) === toLocalISODate(new Date()) ? 'bg-[#26d966] text-[#000000] shadow-md' : 'text-slate-800'}`}>
                           {date.getDate()}
@@ -1285,17 +1283,17 @@ export default function App({ currentUser }: { currentUser: User }) {
                     <div className="w-16 flex-shrink-0 border-r border-slate-200 bg-slate-50 flex items-center justify-center p-2">
                       <span className="text-[10px] font-bold text-slate-400 text-center uppercase leading-tight">Sin<br/>Hora</span>
                     </div>
-                    {(calendarView === 'week' ? getDaysInWeek(currentDate).slice(0, 5) : [currentDate]).map((date, i) => {
+                    {(calendarView === 'week' ? getDaysInWeek(currentDate) : [currentDate]).map((date, i) => {
                       const dateStr = toLocalISODate(date);
                       const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                       const dayTasks = calendarFilteredTasks.filter(t => t.dueDate === dateStr && !t.startTime);
                       return (
                         <div
                           key={i}
-                          className={`flex-1 min-w-0 p-1 border-r border-slate-200 min-h-[60px] overflow-hidden ${isWeekend ? 'bg-slate-100/80 repeating-linear-gradient-45 cursor-not-allowed' : 'hover:bg-slate-50'}`}
-                          onDragOver={(e) => { if(!isWeekend) handleDragOver(e); }}
-                          onDrop={(e) => { if(!isWeekend) handleCalendarDrop(e, dateStr, null); }}
-                          onClick={() => { if(!isWeekend) openNewTaskModal(dateStr) }}
+                          className={`flex-1 min-w-0 p-1 border-r border-slate-200 min-h-[60px] overflow-hidden ${isWeekend ? 'bg-slate-50/60 hover:bg-slate-100/70' : 'hover:bg-slate-50'}`}
+                          onDragOver={handleDragOver}
+                          onDrop={(e) => handleCalendarDrop(e, dateStr, null)}
+                          onClick={() => openNewTaskModal(dateStr)}
                         >
                           <div className="max-h-[120px] overflow-y-auto overflow-x-hidden custom-scrollbar pr-1 w-full">
                             {dayTasks.map(task => <TaskCard key={task.id} task={task} compact />)}
@@ -1313,7 +1311,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                           <div className="w-16 flex-shrink-0 border-r border-slate-200 bg-slate-50 relative">
                             <span className="absolute top-2 right-2 text-[10px] font-bold text-slate-400">{hourStr}</span>
                           </div>
-                          {(calendarView === 'week' ? getDaysInWeek(currentDate).slice(0, 5) : [currentDate]).map((date, dayIdx) => {
+                          {(calendarView === 'week' ? getDaysInWeek(currentDate) : [currentDate]).map((date, dayIdx) => {
                             const dateStr = toLocalISODate(date);
                             const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                             const hourPrefix = hourStr.split(':')[0]; // "19"
@@ -1326,12 +1324,12 @@ export default function App({ currentUser }: { currentUser: User }) {
                             return (
                               <div
                                 key={dayIdx}
-                                className={`flex-1 min-w-0 p-1 border-r border-slate-100 overflow-hidden ${isWeekend ? 'bg-slate-100/80 repeating-linear-gradient-45 cursor-not-allowed' : 'hover:bg-blue-50/30 transition-colors'}`}
-                                onDragOver={(e) => { if(!isWeekend) handleDragOver(e); }}
-                                onDrop={(e) => { if(!isWeekend) handleCalendarDrop(e, dateStr, hourStr); }}
+                                className={`flex-1 min-w-0 p-1 border-r border-slate-100 overflow-hidden transition-colors ${isWeekend ? 'bg-slate-50/60 hover:bg-blue-50/40' : 'hover:bg-blue-50/30'}`}
+                                onDragOver={handleDragOver}
+                                onDrop={(e) => handleCalendarDrop(e, dateStr, hourStr)}
                                 onClick={(e) => {
                                   // Abre el creador de tareas autocompletando la hora seleccionada
-                                  if (e.target === e.currentTarget && !isWeekend) {
+                                  if (e.target === e.currentTarget) {
                                     setEditingTask(null);
                                     setSelectedTemplate('');
                                     setSelectedDateForNewTask(dateStr);
@@ -2102,7 +2100,6 @@ export default function App({ currentUser }: { currentUser: User }) {
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        .repeating-linear-gradient-45 { background-image: repeating-linear-gradient(45deg, #f1f5f9 0, #f1f5f9 10px, #e2e8f0 10px, #e2e8f0 20px); }
       `}} />
     </div>
     <section className={`print-calendar ${calendarView === 'week' ? 'is-week' : 'is-month'}`}>
@@ -2114,8 +2111,8 @@ export default function App({ currentUser }: { currentUser: User }) {
           <p>{calendarPeriodLabel} · {calendarFilterSummary}</p>
         </div>
       </header>
-      <div className="print-calendar-grid" style={{ gridTemplateColumns: `repeat(${calendarView === 'week' ? 5 : 7}, minmax(0, 1fr))` }}>
-        {(calendarView === 'week' ? getDaysInWeek(currentDate).slice(0, 5) : getDaysInMonth(currentDate)).map((date, index) => {
+      <div className="print-calendar-grid" style={{ gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}>
+        {(calendarView === 'week' ? getDaysInWeek(currentDate) : getDaysInMonth(currentDate)).map((date, index) => {
           if (!date) return <div key={`empty-${index}`} className="print-calendar-day print-calendar-empty" />;
           const dateKey = toLocalISODate(date);
           const dayTasks = sortTasks(calendarFilteredTasks.filter(task => task.dueDate === dateKey));
