@@ -26,13 +26,13 @@ const TEAM = [
 ];
 
 const INITIAL_CLIENTS = [
-  { id: 'c1', name: 'Alcacenter', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0 },
-  { id: 'c2', name: 'inku_sushi', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0 },
-  { id: 'c3', name: 'Merca China', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0 },
-  { id: 'c4', name: 'Shushi Tok', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0 },
-  { id: 'c5', name: 'SpaceZoneJump', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0 },
-  { id: 'c6', name: 'swiraes', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0 },
-  { id: 'c7', name: 'Welding Systems', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0 }
+  { id: 'c1', name: 'Alcacenter', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0, isActive: true, vatEnabled: false, vatRate: 21 },
+  { id: 'c2', name: 'inku_sushi', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0, isActive: true, vatEnabled: false, vatRate: 21 },
+  { id: 'c3', name: 'Merca China', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0, isActive: true, vatEnabled: false, vatRate: 21 },
+  { id: 'c4', name: 'Shushi Tok', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0, isActive: true, vatEnabled: false, vatRate: 21 },
+  { id: 'c5', name: 'SpaceZoneJump', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0, isActive: true, vatEnabled: false, vatRate: 21 },
+  { id: 'c6', name: 'swiraes', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0, isActive: true, vatEnabled: false, vatRate: 21 },
+  { id: 'c7', name: 'Welding Systems', type: 'external', createdAt: null, updatedAt: null, startMonth: null, avatarPath: null, importantLinks: [], recurringAmount: 0, isActive: true, vatEnabled: false, vatRate: 21 }
 ];
 
 const mapClientFromDb = (client) => ({
@@ -45,6 +45,9 @@ const mapClientFromDb = (client) => ({
   avatarPath: client.avatar_path,
   importantLinks: Array.isArray(client.important_links) ? client.important_links : [],
   recurringAmount: Number(client.recurring_amount || 0),
+  isActive: client.is_active !== false,
+  vatEnabled: client.vat_enabled === true,
+  vatRate: Number(client.vat_rate ?? 21),
 });
 
 const STANDARD_WORKFLOW = [
@@ -171,11 +174,12 @@ export default function App({ currentUser }: { currentUser: User }) {
   const [selectedClientForModal, setSelectedClientForModal] = useState(null); // Nuevo Panel de Cliente
   const [selectedClientProfile, setSelectedClientProfile] = useState(null);
   const [clientSearch, setClientSearch] = useState('');
+  const [clientListScope, setClientListScope] = useState('active');
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false); // Modal de nuevo cliente
   const [isClientProfileModalOpen, setIsClientProfileModalOpen] = useState(false);
   const [isSavingClientProfile, setIsSavingClientProfile] = useState(false);
   const [clientAvatarUrls, setClientAvatarUrls] = useState({});
-  const [clientProfileDraft, setClientProfileDraft] = useState({ startMonth: '', recurringAmount: '0', importantLinks: [{ label: 'Carpeta de Drive', url: '' }] });
+  const [clientProfileDraft, setClientProfileDraft] = useState({ startMonth: '', recurringAmount: '0', vatEnabled: false, vatRate: '21', importantLinks: [{ label: 'Carpeta de Drive', url: '' }] });
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
@@ -431,6 +435,9 @@ export default function App({ currentUser }: { currentUser: User }) {
       avatarPath: null,
       importantLinks: [],
       recurringAmount: 0,
+      isActive: true,
+      vatEnabled: false,
+      vatRate: 21,
     };
     const newTasks = generateTasksForClient(newClient);
 
@@ -442,6 +449,9 @@ export default function App({ currentUser }: { currentUser: User }) {
         start_month: newClient.startMonth,
         important_links: newClient.importantLinks,
         recurring_amount: newClient.recurringAmount,
+        is_active: newClient.isActive,
+        vat_enabled: newClient.vatEnabled,
+        vat_rate: newClient.vatRate,
         updated_at: newClient.updatedAt,
       });
       if (clientError) {
@@ -464,6 +474,8 @@ export default function App({ currentUser }: { currentUser: User }) {
     setClientProfileDraft({
       startMonth: (client.startMonth || '').slice(0, 7),
       recurringAmount: String(client.recurringAmount || 0),
+      vatEnabled: client.vatEnabled === true,
+      vatRate: String(client.vatRate ?? 21),
       importantLinks: client.importantLinks?.length
         ? client.importantLinks.map(link => ({ label: link.label || '', url: link.url || '' }))
         : [{ label: 'Carpeta de Drive', url: '' }],
@@ -503,6 +515,8 @@ export default function App({ currentUser }: { currentUser: User }) {
       const startMonth = clientProfileDraft.startMonth ? `${clientProfileDraft.startMonth}-01` : null;
       const recurringAmount = Number(clientProfileDraft.recurringAmount || 0);
       if (!Number.isFinite(recurringAmount) || recurringAmount < 0) throw new Error('La cuota mensual no es válida.');
+      const vatRate = Number(clientProfileDraft.vatRate || 0);
+      if (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100) throw new Error('El porcentaje de IVA debe estar entre 0 y 100.');
       const avatarPath = uploadedAvatarPath || selectedClientProfile.avatarPath || null;
       const updatedAt = new Date().toISOString();
       const { data, error } = await supabase.from('clients').update({
@@ -510,6 +524,8 @@ export default function App({ currentUser }: { currentUser: User }) {
         avatar_path: avatarPath,
         important_links: importantLinks,
         recurring_amount: recurringAmount,
+        vat_enabled: clientProfileDraft.vatEnabled,
+        vat_rate: vatRate,
         updated_at: updatedAt,
       }).eq('id', selectedClientProfile.id).select().single();
       if (error) throw error;
@@ -526,6 +542,8 @@ export default function App({ currentUser }: { currentUser: User }) {
         const { data: updatedControl, error: controlError } = await supabase.from('invoices').update({
           recurring_amount: recurringAmount,
           amount: recurringAmount + extrasTotal,
+          vat_enabled: clientProfileDraft.vatEnabled,
+          vat_rate: vatRate,
           updated_at: updatedAt,
         }).eq('id', activeControl.id).select().single();
         if (controlError) throw controlError;
@@ -549,6 +567,30 @@ export default function App({ currentUser }: { currentUser: User }) {
     if (supabase) await supabase.auth.signOut();
   };
 
+  const setClientActive = async (client, isActive) => {
+    if (!supabase || !isAdmin) return;
+    const { data, error } = await supabase.from('clients').update({ is_active: isActive, updated_at: new Date().toISOString() }).eq('id', client.id).select().single();
+    if (error) return setSyncError(error.message);
+    const updatedClient = mapClientFromDb(data);
+    setClients(previous => previous.map(item => item.id === client.id ? updatedClient : item));
+    if (selectedClientProfile?.id === client.id) setSelectedClientProfile(updatedClient);
+  };
+
+  const deleteClient = async (client) => {
+    if (!supabase || !isAdmin) return;
+    const confirmation = window.prompt(`Esta acción eliminará también sus tareas y controles de facturación. Escribe ${client.name} para confirmar:`);
+    if (confirmation !== client.name) return;
+    const billingPaths = invoices.filter(invoice => invoice.client_id === client.id).flatMap(invoice => [invoice.invoice_path, invoice.receipt_path]).filter(Boolean);
+    const { error } = await supabase.from('clients').delete().eq('id', client.id);
+    if (error) return setSyncError(error.message);
+    if (client.avatarPath) await supabase.storage.from('client-assets').remove([client.avatarPath]);
+    if (billingPaths.length) await supabase.storage.from('billing-documents').remove(billingPaths);
+    setClients(previous => previous.filter(item => item.id !== client.id));
+    setTasks(previous => previous.filter(task => task.client !== client.id));
+    setInvoices(previous => previous.filter(invoice => invoice.client_id !== client.id));
+    setSelectedClientProfile(null);
+  };
+
   const uploadBillingDocument = async (invoiceId, file, kind) => {
     if (!supabase || !file) return null;
     if (file.size > 10 * 1024 * 1024) throw new Error('El archivo supera el límite de 10 MB.');
@@ -565,7 +607,7 @@ export default function App({ currentUser }: { currentUser: User }) {
   const ensureBillingMonth = async (monthKey) => {
     if (!supabase || !isAdmin) return;
     const monthDate = `${monthKey}-01`;
-    const eligibleClients = clients.filter(client => !client.startMonth || client.startMonth.slice(0, 7) <= monthKey);
+    const eligibleClients = clients.filter(client => client.isActive && (!client.startMonth || client.startMonth.slice(0, 7) <= monthKey));
     const existingClientIds = new Set(invoices.filter(invoice => invoice.billing_month?.startsWith(monthKey)).map(invoice => invoice.client_id));
     const missingRecords = eligibleClients.filter(client => !existingClientIds.has(client.id)).map(client => ({
       id: crypto.randomUUID(),
@@ -574,6 +616,8 @@ export default function App({ currentUser }: { currentUser: User }) {
       recurring_amount: Number(client.recurringAmount || 0),
       extras: [],
       amount: Number(client.recurringAmount || 0),
+      vat_enabled: client.vatEnabled,
+      vat_rate: client.vatRate,
       status: 'pending_creation',
       notes: '',
       updated_at: new Date().toISOString(),
@@ -615,6 +659,7 @@ export default function App({ currentUser }: { currentUser: User }) {
         .filter(extra => extra.concept && extra.amount > 0);
       const recurringAmount = Number(form.get('recurringAmount') || 0);
       const amount = recurringAmount + extras.reduce((sum, extra) => sum + extra.amount, 0);
+      const invoiceClient = clients.find(client => client.id === String(form.get('clientId')));
       const record = {
         id,
         client_id: String(form.get('clientId')),
@@ -623,6 +668,8 @@ export default function App({ currentUser }: { currentUser: User }) {
         recurring_amount: recurringAmount,
         extras,
         amount,
+        vat_enabled: editingInvoice?.vat_enabled ?? invoiceClient?.vatEnabled ?? false,
+        vat_rate: Number(editingInvoice?.vat_rate ?? invoiceClient?.vatRate ?? 21),
         due_date: String(form.get('dueDate') || '') || null,
         status,
         invoice_path: invoiceDocument?.path || editingInvoice?.invoice_path || null,
@@ -681,11 +728,13 @@ export default function App({ currentUser }: { currentUser: User }) {
   const endOfWeekStr = toLocalISODate(endOfWeek);
 
   const currentMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-  const filteredTasks = tasks.filter(t => filterAssignee === 'all' || t.assignees.includes(filterAssignee));
-  const scheduledThisMonth = tasks.filter(task => task.dueDate?.startsWith(currentMonthKey));
+  const activeClientIds = new Set(clients.filter(client => client.isActive).map(client => client.id));
+  const activeTasks = tasks.filter(task => activeClientIds.has(task.client));
+  const filteredTasks = activeTasks.filter(t => filterAssignee === 'all' || t.assignees.includes(filterAssignee));
+  const scheduledThisMonth = activeTasks.filter(task => task.dueDate?.startsWith(currentMonthKey));
   const scheduledServiceKeys = new Set(scheduledThisMonth.map(task => `${task.client}::${task.title}`));
   const latestUnplannedByService = new Map();
-  tasks.filter(task => !task.dueDate).forEach(task => {
+  activeTasks.filter(task => !task.dueDate).forEach(task => {
     const key = `${task.client}::${task.title}`;
     const previous = latestUnplannedByService.get(key);
     const taskOrder = task.createdAt || task.id;
@@ -706,7 +755,10 @@ export default function App({ currentUser }: { currentUser: User }) {
     && (calendarStatusFilter === 'all' || task.status === calendarStatusFilter)
   );
   const monthLabel = `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
-  const searchedClients = clients.filter(client => client.name.toLowerCase().includes(clientSearch.trim().toLowerCase()));
+  const searchedClients = clients.filter(client =>
+    (clientListScope === 'all' || (clientListScope === 'active' ? client.isActive : !client.isActive))
+    && client.name.toLowerCase().includes(clientSearch.trim().toLowerCase())
+  );
   const printableDates = calendarView === 'week'
     ? getDaysInWeek(currentDate).slice(0, 5)
     : getDaysInMonth(currentDate).filter(Boolean);
@@ -714,7 +766,7 @@ export default function App({ currentUser }: { currentUser: User }) {
     ? `${printableDates[0]?.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${printableDates[printableDates.length - 1]?.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`
     : monthLabel;
   const selectedBillingControls = clients
-    .filter(client => !client.startMonth || client.startMonth.slice(0, 7) <= billingMonth)
+    .filter(client => (client.isActive || invoices.some(invoice => invoice.client_id === client.id && invoice.billing_month?.startsWith(billingMonth))) && (!client.startMonth || client.startMonth.slice(0, 7) <= billingMonth))
     .map(client => invoices.find(invoice => invoice.client_id === client.id && invoice.billing_month?.startsWith(billingMonth)) || {
       id: null,
       client_id: client.id,
@@ -722,12 +774,17 @@ export default function App({ currentUser }: { currentUser: User }) {
       recurring_amount: Number(client.recurringAmount || 0),
       extras: [],
       amount: Number(client.recurringAmount || 0),
+      vat_enabled: client.vatEnabled,
+      vat_rate: client.vatRate,
       status: 'pending_creation',
     });
   const overdueInvoices = invoices.filter(invoice => invoice.status !== 'paid' && invoice.billing_month?.slice(0, 7) < billingMonth);
+  const getInvoiceGrossTotal = (invoice) => Number(invoice.amount || 0) * (invoice.vat_enabled ? 1 + Number(invoice.vat_rate || 0) / 100 : 1);
   const overdueTotal = overdueInvoices.reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0);
+  const overdueGrossTotal = overdueInvoices.reduce((sum, invoice) => sum + getInvoiceGrossTotal(invoice), 0);
   const billingExtrasTotal = selectedBillingControls.reduce((sum, invoice) => sum + (Array.isArray(invoice.extras) ? invoice.extras.reduce((extraSum, extra) => extraSum + Number(extra.amount || 0), 0) : 0), 0);
   const billingExpectedTotal = selectedBillingControls.reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0);
+  const billingGrossTotal = selectedBillingControls.reduce((sum, invoice) => sum + getInvoiceGrossTotal(invoice), 0);
   const visibleBillingControls = selectedBillingControls.filter(invoice => billingFilter === 'all' || invoice.status === billingFilter);
   const calendarFilterSummary = [
     calendarTypeFilter !== 'all' ? calendarTypeFilter : null,
@@ -1038,7 +1095,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                   Progreso por Cliente (Clic para planificar)
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {clients.map(client => {
+                  {clients.filter(client => client.isActive).map(client => {
                     const clientTasks = monthlyTasks.filter(t => t.client === client.id);
                     const doneTasks = clientTasks.filter(t => t.status === 'done').length;
                     const totalTasks = clientTasks.length;
@@ -1155,7 +1212,7 @@ export default function App({ currentUser }: { currentUser: User }) {
               <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-3">
                 <span className="flex items-center text-xs font-black uppercase tracking-wider text-slate-400"><SlidersHorizontal className="mr-2 h-4 w-4" />Filtrar calendario</span>
                 <select value={calendarTypeFilter} onChange={event => setCalendarTypeFilter(event.target.value)} className="max-w-64 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700"><option value="all">Todos los tipos</option>{calendarTaskTypes.map(title => <option key={title} value={title}>{title}</option>)}</select>
-                <select value={calendarClientFilter} onChange={event => setCalendarClientFilter(event.target.value)} className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700"><option value="all">Todos los clientes</option>{clients.map(client => <option key={client.id} value={client.id}>{client.name}</option>)}</select>
+                <select value={calendarClientFilter} onChange={event => setCalendarClientFilter(event.target.value)} className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700"><option value="all">Todos los clientes</option>{clients.filter(client => client.isActive).map(client => <option key={client.id} value={client.id}>{client.name}</option>)}</select>
                 <select value={calendarStatusFilter} onChange={event => setCalendarStatusFilter(event.target.value)} className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700"><option value="all">Todos los estados</option>{STATUSES.map(status => <option key={status.id} value={status.id}>{status.label}</option>)}</select>
                 {(calendarTypeFilter !== 'all' || calendarClientFilter !== 'all' || calendarStatusFilter !== 'all' || filterAssignee !== 'all') && <button onClick={() => { setCalendarTypeFilter('all'); setCalendarClientFilter('all'); setCalendarStatusFilter('all'); setFilterAssignee('all'); }} className="ml-auto inline-flex items-center rounded-lg px-3 py-2 text-xs font-black text-slate-500 hover:bg-slate-100"><RotateCcw className="mr-1.5 h-3.5 w-3.5" />Limpiar filtros</button>}
               </div>
@@ -1418,12 +1475,16 @@ export default function App({ currentUser }: { currentUser: User }) {
                             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#26d966]">Ficha de cliente</p>
                             <h2 className="mt-2 text-3xl font-black">{selectedClientProfile.name}</h2>
                             <p className="mt-2 text-sm text-white/60">Cliente desde {formatMonth(selectedClientProfile.startMonth || selectedClientProfile.createdAt)}</p>
-                            <button onClick={() => openClientProfileEditor(selectedClientProfile)} className="mt-3 inline-flex items-center rounded-lg border border-white/20 px-3 py-2 text-xs font-black transition hover:bg-white hover:text-black"><Edit3 className="mr-2 h-4 w-4" />Editar ficha</button>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button onClick={() => openClientProfileEditor(selectedClientProfile)} className="inline-flex items-center rounded-lg border border-white/20 px-3 py-2 text-xs font-black transition hover:bg-white hover:text-black"><Edit3 className="mr-2 h-4 w-4" />Editar ficha</button>
+                              <button onClick={() => void setClientActive(selectedClientProfile, !selectedClientProfile.isActive)} className="rounded-lg border border-white/20 px-3 py-2 text-xs font-black text-white/80 transition hover:bg-white/10">{selectedClientProfile.isActive ? 'Pasar a inactivo' : 'Reactivar cliente'}</button>
+                              <button onClick={() => void deleteClient(selectedClientProfile)} className="rounded-lg border border-red-400/40 px-3 py-2 text-xs font-black text-red-300 transition hover:bg-red-500 hover:text-white">Eliminar</button>
+                            </div>
                           </div>
                         </div>
                         <div className="flex gap-3">
                           <div className="rounded-xl bg-white/10 px-4 py-3"><p className="text-xs text-white/50">Servicios</p><p className="text-xl font-black">{services.length}</p></div>
-                          <div className="rounded-xl bg-white/10 px-4 py-3"><p className="text-xs text-white/50">Cuota mensual</p><p className="text-xl font-black">{Number(selectedClientProfile.recurringAmount || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p></div>
+                          <div className="rounded-xl bg-white/10 px-4 py-3"><p className="text-xs text-white/50">Cuota sin IVA</p><p className="text-xl font-black">{Number(selectedClientProfile.recurringAmount || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p><p className="mt-1 text-[10px] text-white/50">{selectedClientProfile.vatEnabled ? `+ ${selectedClientProfile.vatRate}% IVA` : 'Sin IVA'}</p></div>
                           <div className="rounded-xl bg-white/10 px-4 py-3"><p className="text-xs text-white/50">Facturas</p><p className="text-xl font-black">{clientInvoices.length}</p></div>
                           <div className="rounded-xl bg-[#26d966] px-4 py-3 text-black"><p className="text-xs font-bold">{monthLabel}</p><p className="text-xl font-black">{completed}/{clientMonthTasks.length}</p></div>
                         </div>
@@ -1470,7 +1531,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                             const status = INVOICE_STATUSES.find(item => item.id === invoice.status);
                             return (
                               <article key={invoice.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
-                                <div><p className="font-black capitalize text-slate-800">{formatMonth(invoice.billing_month)}</p><p className="mt-1 text-xs font-semibold text-slate-500">{invoice.invoice_number || 'Sin número'} · {Number(invoice.amount || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p></div>
+                                <div><p className="font-black capitalize text-slate-800">{formatMonth(invoice.billing_month)}</p><p className="mt-1 text-xs font-semibold text-slate-500">{invoice.invoice_number || 'Sin número'} · {Number(invoice.amount || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} sin IVA · {getInvoiceGrossTotal(invoice).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} total</p></div>
                                 <div className="flex flex-wrap items-center gap-2">
                                   <span className={`rounded-full border px-3 py-1 text-xs font-black ${status?.color || 'border-slate-200 bg-slate-50 text-slate-600'}`}>{status?.label || invoice.status}</span>
                                   {invoice.invoice_path && <button onClick={() => void openBillingDocument(invoice.invoice_path)} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50" title="Abrir factura"><FileText className="h-4 w-4" /></button>}
@@ -1488,7 +1549,7 @@ export default function App({ currentUser }: { currentUser: User }) {
               })() : (
                 <div>
                   <div className="mb-6 flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center">
-                    <div><h2 className="text-2xl font-black text-slate-800">Cartera de clientes</h2><p className="mt-1 text-sm text-slate-500">Servicios, antigüedad y facturación mensual en una única ficha.</p></div>
+                    <div><h2 className="text-2xl font-black text-slate-800">Cartera de clientes</h2><p className="mt-1 text-sm text-slate-500">La vista principal muestra clientes activos; consulta aquí también el histórico.</p><div className="mt-3 flex gap-2"><button onClick={() => setClientListScope('active')} className={`rounded-full px-3 py-1.5 text-xs font-black ${clientListScope === 'active' ? 'bg-black text-white' : 'bg-slate-100 text-slate-500'}`}>Activos ({clients.filter(client => client.isActive).length})</button><button onClick={() => setClientListScope('inactive')} className={`rounded-full px-3 py-1.5 text-xs font-black ${clientListScope === 'inactive' ? 'bg-black text-white' : 'bg-slate-100 text-slate-500'}`}>Inactivos ({clients.filter(client => !client.isActive).length})</button><button onClick={() => setClientListScope('all')} className={`rounded-full px-3 py-1.5 text-xs font-black ${clientListScope === 'all' ? 'bg-black text-white' : 'bg-slate-100 text-slate-500'}`}>Todos ({clients.length})</button></div></div>
                     <div className="flex gap-3">
                       <label className="relative block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={clientSearch} onChange={event => setClientSearch(event.target.value)} placeholder="Buscar cliente…" className="rounded-xl border border-slate-300 bg-slate-50 py-2.5 pl-10 pr-4 text-sm outline-none focus:border-[#26d966]" /></label>
                       <button onClick={() => setIsNewClientModalOpen(true)} className="flex items-center rounded-xl bg-[#26d966] px-4 py-2.5 text-sm font-black text-black"><Plus className="mr-2 h-4 w-4" />Nuevo cliente</button>
@@ -1502,7 +1563,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                       const status = currentInvoice ? INVOICE_STATUSES.find(item => item.id === currentInvoice.status) : null;
                       return (
                         <button key={client.id} onClick={() => setSelectedClientProfile(client)} className="grid w-full grid-cols-1 gap-3 border-b border-slate-100 px-6 py-5 text-left transition last:border-0 hover:bg-slate-50 md:grid-cols-[1.5fr_1fr_0.7fr_1.1fr_36px] md:items-center md:gap-4">
-                          <span className="flex items-center gap-3 font-black text-slate-800"><span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-black text-white">{clientAvatarUrls[client.id] ? <Image loader={({ src }) => src} unoptimized src={clientAvatarUrls[client.id]} alt="" fill sizes="40px" className="object-cover" /> : client.name.charAt(0).toUpperCase()}</span>{client.name}</span>
+                          <span className="flex items-center gap-3 font-black text-slate-800"><span className={`relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl text-white ${client.isActive ? 'bg-black' : 'bg-slate-400'}`}>{clientAvatarUrls[client.id] ? <Image loader={({ src }) => src} unoptimized src={clientAvatarUrls[client.id]} alt="" fill sizes="40px" className="object-cover" /> : client.name.charAt(0).toUpperCase()}</span><span>{client.name}{!client.isActive && <span className="ml-2 rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-500">Inactivo</span>}</span></span>
                           <span className="text-sm font-semibold capitalize text-slate-500">{formatMonth(client.startMonth || client.createdAt)}</span>
                           <span className="text-sm font-black text-slate-700">{services.length}</span>
                           <span className={`w-fit rounded-full border px-3 py-1 text-xs font-black ${status?.color || 'border-slate-200 bg-slate-50 text-slate-500'}`}>{status?.label || 'Sin registro este mes'}</span>
@@ -1530,10 +1591,11 @@ export default function App({ currentUser }: { currentUser: User }) {
                 </div>
               </div>
 
-              {overdueInvoices.length > 0 && <button onClick={() => setBillingFilter('overdue')} className="mb-6 flex w-full items-center justify-between rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-left text-red-800"><span className="flex items-center font-black"><AlertTriangle className="mr-3 h-5 w-5" />Hay {overdueInvoices.length} mensualidad{overdueInvoices.length === 1 ? '' : 'es'} anterior{overdueInvoices.length === 1 ? '' : 'es'} pendiente{overdueInvoices.length === 1 ? '' : 's'} de cobro</span><span className="font-black">{overdueTotal.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} · Ver pendientes</span></button>}
+              {overdueInvoices.length > 0 && <button onClick={() => setBillingFilter('overdue')} className="mb-6 flex w-full items-center justify-between rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-left text-red-800"><span className="flex items-center font-black"><AlertTriangle className="mr-3 h-5 w-5" />Hay {overdueInvoices.length} mensualidad{overdueInvoices.length === 1 ? '' : 'es'} anterior{overdueInvoices.length === 1 ? '' : 'es'} pendiente{overdueInvoices.length === 1 ? '' : 's'} de cobro</span><span className="font-black">{overdueTotal.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} sin IVA · {overdueGrossTotal.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} total</span></button>}
 
-              <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-5">
-                <div className="rounded-2xl border border-slate-200 bg-white p-5"><p className="text-xs font-black uppercase tracking-wider text-slate-400">Previsto del mes</p><p className="mt-2 text-2xl font-black text-slate-900">{billingExpectedTotal.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p></div>
+              <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-6">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5"><p className="text-xs font-black uppercase tracking-wider text-slate-400">Total sin IVA</p><p className="mt-2 text-2xl font-black text-slate-900">{billingExpectedTotal.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p></div>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5"><p className="text-xs font-black uppercase tracking-wider text-emerald-700">Total con IVA</p><p className="mt-2 text-2xl font-black text-emerald-900">{billingGrossTotal.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p></div>
                 <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5"><p className="text-xs font-black uppercase tracking-wider text-violet-700">Extras</p><p className="mt-2 text-2xl font-black text-violet-900">{billingExtrasTotal.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p></div>
                 {['pending_creation', 'sent', 'paid'].map(statusId => {
                   const status = INVOICE_STATUSES.find(item => item.id === statusId);
@@ -1545,16 +1607,17 @@ export default function App({ currentUser }: { currentUser: User }) {
               <div className="mb-4 flex flex-wrap gap-2"><button onClick={() => setBillingFilter('all')} className={`rounded-full px-4 py-2 text-xs font-black ${billingFilter === 'all' ? 'bg-black text-white' : 'bg-white text-slate-500'}`}>Todos ({selectedBillingControls.length})</button>{INVOICE_STATUSES.map(status => <button key={status.id} onClick={() => setBillingFilter(status.id)} className={`rounded-full px-4 py-2 text-xs font-black ${billingFilter === status.id ? 'bg-black text-white' : 'bg-white text-slate-500'}`}>{status.label}</button>)}{overdueInvoices.length > 0 && <button onClick={() => setBillingFilter('overdue')} className={`rounded-full px-4 py-2 text-xs font-black ${billingFilter === 'overdue' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700'}`}>Pendientes anteriores</button>}</div>
 
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="hidden grid-cols-[1.35fr_.8fr_.8fr_.8fr_1.15fr_110px] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-black uppercase tracking-wider text-slate-400 lg:grid"><span>Cliente</span><span>Recurrente</span><span>Extras</span><span>Total</span><span>Estado</span><span>Acciones</span></div>
+                <div className="hidden grid-cols-[1.25fr_.7fr_.7fr_.75fr_.75fr_1.1fr_110px] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-black uppercase tracking-wider text-slate-400 lg:grid"><span>Cliente</span><span>Recurrente</span><span>Extras</span><span>Sin IVA</span><span>Con IVA</span><span>Estado</span><span>Acciones</span></div>
                 {(billingFilter === 'overdue' ? overdueInvoices : visibleBillingControls).map(invoice => {
                   const client = clients.find(item => item.id === invoice.client_id);
                   const status = INVOICE_STATUSES.find(item => item.id === invoice.status);
                   const extrasTotal = Array.isArray(invoice.extras) ? invoice.extras.reduce((sum, extra) => sum + Number(extra.amount || 0), 0) : 0;
-                  return <article key={invoice.id || `${invoice.client_id}-${invoice.billing_month}`} className="grid gap-3 border-b border-slate-100 px-5 py-4 last:border-0 lg:grid-cols-[1.35fr_.8fr_.8fr_.8fr_1.15fr_110px] lg:items-center">
+                  return <article key={invoice.id || `${invoice.client_id}-${invoice.billing_month}`} className="grid gap-3 border-b border-slate-100 px-5 py-4 last:border-0 lg:grid-cols-[1.25fr_.7fr_.7fr_.75fr_.75fr_1.1fr_110px] lg:items-center">
                     <div className="min-w-0"><p className="truncate font-black text-slate-800">{client?.name || 'Cliente'}</p><p className="mt-1 text-xs capitalize text-slate-400">{formatMonth(invoice.billing_month)}{billingFilter === 'overdue' ? ' · pendiente anterior' : ''}</p></div>
                     <p className="text-sm font-bold text-slate-600">{Number(invoice.recurring_amount || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p>
                     <p className={`text-sm font-black ${extrasTotal ? 'text-violet-700' : 'text-slate-400'}`}>{extrasTotal ? `+ ${extrasTotal.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}` : 'Sin extras'}</p>
                     <p className="text-base font-black text-slate-900">{Number(invoice.amount || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</p>
+                    <p className="text-base font-black text-emerald-700">{getInvoiceGrossTotal(invoice).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}<span className="mt-0.5 block text-[10px] font-bold text-slate-400">{invoice.vat_enabled ? `${invoice.vat_rate}% IVA` : 'Sin IVA'}</span></p>
                     <select value={invoice.status} disabled={!invoice.id} onChange={event => void updateInvoiceStatus(invoice, event.target.value)} className={`w-full rounded-lg border px-3 py-2 text-xs font-black ${status?.color}`} aria-label={`Estado de ${client?.name || 'cliente'}`}>{INVOICE_STATUSES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
                     <div className="flex gap-2"><button onClick={() => openInvoiceEditor(invoice)} className="flex-1 rounded-lg bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#1b5b3b]">Gestionar</button>{invoice.invoice_path && <button onClick={() => void openBillingDocument(invoice.invoice_path)} className="rounded-lg border border-slate-200 p-2 text-blue-600" title="Abrir factura"><FileText className="h-4 w-4" /></button>}</div>
                   </article>;
@@ -1583,7 +1646,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                   <label className="mb-1 block text-sm font-bold text-slate-700">Cliente</label>
                   <select name="clientId" required defaultValue={invoiceClientId} disabled={Boolean(editingInvoice)} className={`w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}] disabled:opacity-70`}>
                     <option value="">Selecciona un cliente</option>
-                    {clients.map(client => <option key={client.id} value={client.id}>{client.name}</option>)}
+                    {clients.filter(client => client.isActive || client.id === invoiceClientId).map(client => <option key={client.id} value={client.id}>{client.name}</option>)}
                   </select>
                   {editingInvoice && <input type="hidden" name="clientId" value={invoiceClientId} />}
                 </div>
@@ -1729,7 +1792,7 @@ export default function App({ currentUser }: { currentUser: User }) {
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Cliente / Proyecto</label>
                   <select name="client" defaultValue={editingTask?.client || clients[0]?.id} className={`w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-[${BRAND_COLORS.verdeMedio}] outline-none text-slate-700`}>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {clients.filter(client => client.isActive).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
                 
@@ -1947,6 +2010,10 @@ export default function App({ currentUser }: { currentUser: User }) {
                   <div className="relative"><Euro className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input type="number" min="0" step="0.01" value={clientProfileDraft.recurringAmount} onChange={event => setClientProfileDraft(previous => ({ ...previous, recurringAmount: event.target.value }))} className="w-full rounded-xl border border-slate-300 bg-slate-50 py-3 pl-11 pr-4 text-sm font-semibold outline-none focus:border-[#26d966]" /></div>
                   <span className="mt-2 block text-xs text-slate-400">Este importe se copiará como base al preparar cada nuevo mes.</span>
                 </label>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:col-span-2">
+                  <label className="flex cursor-pointer items-center justify-between gap-4"><span><span className="block text-sm font-black text-slate-700">Aplicar IVA a este cliente</span><span className="mt-1 block text-xs text-slate-400">La cuota y los extras se consideran importes sin IVA.</span></span><input type="checkbox" checked={clientProfileDraft.vatEnabled} onChange={event => setClientProfileDraft(previous => ({ ...previous, vatEnabled: event.target.checked }))} className="h-5 w-5 accent-[#26d966]" /></label>
+                  {clientProfileDraft.vatEnabled && <label className="mt-4 block"><span className="mb-1 block text-xs font-black uppercase tracking-wider text-slate-500">Porcentaje de IVA</span><div className="relative"><input type="number" min="0" max="100" step="0.01" value={clientProfileDraft.vatRate} onChange={event => setClientProfileDraft(previous => ({ ...previous, vatRate: event.target.value }))} className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 pr-10 text-sm font-bold" /><span className="absolute right-4 top-1/2 -translate-y-1/2 font-black text-slate-400">%</span></div></label>}
+                </div>
               </div>
 
               <div className="mt-7 border-t border-slate-100 pt-6">
