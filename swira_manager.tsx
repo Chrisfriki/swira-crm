@@ -50,6 +50,31 @@ const mapClientFromDb = (client) => ({
   vatRate: Number(client.vat_rate ?? 21),
 });
 
+const getBillingExtrasTotal = (invoice) => Array.isArray(invoice?.extras)
+  ? invoice.extras.reduce((sum, extra) => sum + Number(extra.amount || 0), 0)
+  : 0;
+
+const hasBillingEvidence = (invoice) => Boolean(
+  invoice?.invoice_number || invoice?.invoice_path || invoice?.receipt_path
+);
+
+const isEmptyBillingPlaceholder = (invoice) => {
+  const extrasTotal = getBillingExtrasTotal(invoice);
+  return !hasBillingEvidence(invoice)
+    && Number(invoice?.recurring_amount || 0) === 0
+    && Number(invoice?.amount || 0) === extrasTotal;
+};
+
+const canSyncBillingDefaults = (invoice, previousRecurringAmount) => {
+  if (hasBillingEvidence(invoice)) return false;
+  if (isEmptyBillingPlaceholder(invoice)) return true;
+  const extrasTotal = getBillingExtrasTotal(invoice);
+  const previousRecurring = Number(previousRecurringAmount || 0);
+  return ['pending_creation', 'ready'].includes(invoice?.status)
+    && Number(invoice?.recurring_amount || 0) === previousRecurring
+    && Number(invoice?.amount || 0) === previousRecurring + extrasTotal;
+};
+
 const STANDARD_WORKFLOW = [
   { title: "🎬 Grabación de Reels", desc: "Grabar 8 reels", time: "2h", quantity: "8 Reels", people: 2, urgency: 4, importance: 4 },
   { title: "✂️ Edición de Reels", desc: "Editar 8 reels", time: "2h", quantity: "8 Reels", people: 1, urgency: 3, importance: 4 },
@@ -535,19 +560,25 @@ export default function App({ currentUser }: { currentUser: User }) {
       setSelectedClientProfile(updatedClient);
       setIsClientProfileModalOpen(false);
 
-      const activeMonthKey = new Date().toISOString().slice(0, 7);
-      const activeControl = invoices.find(invoice => invoice.client_id === updatedClient.id && invoice.billing_month?.startsWith(activeMonthKey));
-      if (activeControl?.status === 'pending_creation' && !activeControl.invoice_path) {
-        const extrasTotal = Array.isArray(activeControl.extras) ? activeControl.extras.reduce((sum, extra) => sum + Number(extra.amount || 0), 0) : 0;
-        const { data: updatedControl, error: controlError } = await supabase.from('invoices').update({
-          recurring_amount: recurringAmount,
-          amount: recurringAmount + extrasTotal,
-          vat_enabled: clientProfileDraft.vatEnabled,
-          vat_rate: vatRate,
-          updated_at: updatedAt,
-        }).eq('id', activeControl.id).select().single();
+      const controlsToSync = invoices.filter(invoice =>
+        invoice.client_id === updatedClient.id
+        && canSyncBillingDefaults(invoice, selectedClientProfile.recurringAmount)
+      );
+      if (controlsToSync.length) {
+        const controlResults = await Promise.all(controlsToSync.map(invoice => {
+          const extrasTotal = getBillingExtrasTotal(invoice);
+          return supabase.from('invoices').update({
+            recurring_amount: recurringAmount,
+            amount: recurringAmount + extrasTotal,
+            vat_enabled: clientProfileDraft.vatEnabled,
+            vat_rate: vatRate,
+            updated_at: updatedAt,
+          }).eq('id', invoice.id).select().single();
+        }));
+        const controlError = controlResults.find(result => result.error)?.error;
         if (controlError) throw controlError;
-        setInvoices(previous => previous.map(invoice => invoice.id === activeControl.id ? updatedControl : invoice));
+        const syncedControls = new Map(controlResults.flatMap(result => result.data ? [[result.data.id, result.data]] : []));
+        setInvoices(previous => previous.map(invoice => syncedControls.get(invoice.id) || invoice));
       }
 
       if (uploadedAvatarPath) {
@@ -622,12 +653,32 @@ export default function App({ currentUser }: { currentUser: User }) {
       notes: '',
       updated_at: new Date().toISOString(),
     }));
-    if (!missingRecords.length) return;
-    const { error } = await supabase.from('invoices').upsert(missingRecords, { onConflict: 'client_id,billing_month', ignoreDuplicates: true });
-    if (error) return setSyncError(error.message);
+    if (missingRecords.length) {
+      const { error } = await supabase.from('invoices').upsert(missingRecords, { onConflict: 'client_id,billing_month', ignoreDuplicates: true });
+      if (error) return setSyncError(error.message);
+    }
     const { data, error: refreshError } = await supabase.from('invoices').select('*').eq('billing_month', monthDate);
     if (refreshError) return setSyncError(refreshError.message);
-    setInvoices(previous => [...previous.filter(invoice => !invoice.billing_month?.startsWith(monthKey)), ...(data || [])]);
+    const clientsById = new Map(clients.map(client => [client.id, client]));
+    const placeholders = (data || []).filter(invoice => {
+      const client = clientsById.get(invoice.client_id);
+      return client && Number(client.recurringAmount || 0) > 0 && isEmptyBillingPlaceholder(invoice);
+    });
+    const repairedResults = await Promise.all(placeholders.map(invoice => {
+      const client = clientsById.get(invoice.client_id);
+      return supabase.from('invoices').update({
+        recurring_amount: Number(client.recurringAmount || 0),
+        amount: Number(client.recurringAmount || 0) + getBillingExtrasTotal(invoice),
+        vat_enabled: client.vatEnabled,
+        vat_rate: client.vatRate,
+        updated_at: new Date().toISOString(),
+      }).eq('id', invoice.id).select().single();
+    }));
+    const repairError = repairedResults.find(result => result.error)?.error;
+    if (repairError) return setSyncError(repairError.message);
+    const repairedById = new Map(repairedResults.flatMap(result => result.data ? [[result.data.id, result.data]] : []));
+    const refreshedControls = (data || []).map(invoice => repairedById.get(invoice.id) || invoice);
+    setInvoices(previous => [...previous.filter(invoice => !invoice.billing_month?.startsWith(monthKey)), ...refreshedControls]);
   };
 
   const openInvoiceEditor = (invoice) => {
@@ -658,8 +709,10 @@ export default function App({ currentUser }: { currentUser: User }) {
         .map(extra => ({ concept: extra.concept.trim(), amount: Number(extra.amount || 0) }))
         .filter(extra => extra.concept && extra.amount > 0);
       const recurringAmount = Number(form.get('recurringAmount') || 0);
+      if (!Number.isFinite(recurringAmount) || recurringAmount < 0) throw new Error('La cuota recurrente no es válida.');
       const amount = recurringAmount + extras.reduce((sum, extra) => sum + extra.amount, 0);
       const invoiceClient = clients.find(client => client.id === String(form.get('clientId')));
+      if (!invoiceClient) throw new Error('El cliente seleccionado no existe o ya no está disponible.');
       const record = {
         id,
         client_id: String(form.get('clientId')),
